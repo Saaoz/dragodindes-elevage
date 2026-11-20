@@ -156,6 +156,7 @@ test("retour dépassé (#31) : vraie durée de retard, alerte au passé, pas d'a
   await expect(carte.getByRole("alert")).not.toContainText("atteindra");
   await expect(carte.getByText(/clique « Je quitte l’enclos »/)).toBeVisible();
   await expect(carte.getByText(/Objectif déjà atteint/)).toHaveCount(0);
+  await expect(carte.getByText(/pas besoin de revenir/)).toHaveCount(0);
   await expect(carte.getByRole("button", { name: "Ajouter à mon agenda" })).toHaveCount(0);
   await expect(carte.getByText(/Rappel .* l.heure de retour/)).toHaveCount(0);
   await expect(page).toHaveTitle(/^En retard · Enclos 1/);
