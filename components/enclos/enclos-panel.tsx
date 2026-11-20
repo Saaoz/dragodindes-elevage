@@ -1,37 +1,32 @@
 "use client";
 
-import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { BellRing } from "lucide-react";
 import { EnclosCard } from "@/components/enclos/enclos-card";
 import { usePush } from "@/components/enclos/use-push";
-import { ThemeToggle } from "@/components/theme-toggle";
-import { formatCompteARebours, remplacerEnclos, trierParUrgence, vueEnclos, type Objectif } from "@/lib/enclos";
-import { enclosSchema, NB_ENCLOS, type Enclos } from "@/lib/schema";
+import { magasinActif, useApp, useUi } from "@/components/app-state";
+import { BoutonDemo } from "@/components/commun/bouton-demo";
+import { Choix } from "@/components/commun/choix";
+import { EnTete, Page } from "@/components/commun/en-tete";
+import { formatCompteARebours, trierParUrgence, vueEnclos, type Objectif } from "@/lib/enclos";
+import { enclosSchema, MARGES_RAPPEL_MIN, NB_ENCLOS, type Enclos } from "@/lib/schema";
 import { annulerApi, enJson, planifierApi } from "@/lib/push/client";
 import { contenuRappel } from "@/lib/push/rappel-enclos";
-import { useStore } from "@/lib/store";
 
 const TITRE = "Mes enclos";
 
 export function EnclosPanel() {
-  const [pret, setPret] = useState(false);
+  const pret = useUi((u) => u.pret);
+  const demo = useUi((u) => u.demo);
   const [maintenant, setMaintenant] = useState(() => Date.now());
-  const [objectifs, setObjectifs] = useState<Objectif[]>(() => Array(NB_ENCLOS).fill("aucun"));
-  const enclos = useStore((s) => s.enclos);
+  const enclos = useApp((s) => s.enclos);
+  const margeMin = useApp((s) => s.reglages.margeRappelMin);
   const push = usePush();
   /* Message propre à chaque enclos (succès / échec du rappel push) et opération en cours. */
   const [notes, setNotes] = useState<(string | null)[]>(() => Array(NB_ENCLOS).fill(null));
   const [enCours, setEnCours] = useState<boolean[]>(() => Array(NB_ENCLOS).fill(false));
   const noter = (i: number, n: string | null) => setNotes((p) => p.map((x, k) => (k === i ? n : x)));
   const occuper = (i: number, b: boolean) => setEnCours((p) => p.map((x, k) => (k === i ? b : x)));
-
-  /* Le magasin n'est pas hydraté tout seul (skipHydration) : lecture du localStorage côté client. */
-  useEffect(() => {
-    const fin = useStore.persist.onFinishHydration(() => setPret(true));
-    void useStore.persist.rehydrate();
-    if (useStore.persist.hasHydrated()) setPret(true); // eslint-disable-line react-hooks/set-state-in-effect
-    return fin;
-  }, []);
 
   /* Horloge : on recalcule chaque seconde. */
   useEffect(() => {
@@ -40,8 +35,8 @@ export function EnclosPanel() {
   }, []);
 
   const vues = useMemo(
-    () => trierParUrgence(enclos.map((e, i) => vueEnclos(e, i, maintenant, objectifs[i] ?? "aucun"))),
-    [enclos, maintenant, objectifs],
+    () => trierParUrgence(enclos.map((e, i) => vueEnclos(e, i, maintenant))),
+    [enclos, maintenant],
   );
 
   /* Titre de l'onglet = compte à rebours du prochain événement. */
@@ -67,7 +62,7 @@ export function EnclosPanel() {
     return () => window.removeEventListener("hashchange", aller);
   }, [pret]);
 
-  /* ---------- rappels push (#16) ---------- */
+  /* ---------- rappels push (#16) : jamais en démo ---------- */
   const annulerRappel = useCallback(
     async (e: Enclos) => {
       if (!e.rappel || !push.subscription) return;
@@ -78,68 +73,89 @@ export function EnclosPanel() {
 
   const planifierRappel = useCallback(
     async (i: number, e: Enclos, objectif: Objectif, sub: PushSubscription | null = push.subscription) => {
-      if (!sub || useStore.getState().futureVersion) return;
-      const c = contenuRappel(e, i, objectif, Date.now());
+      const magasin = magasinActif().getState();
+      if (!sub || magasin.demo || magasin.futureVersion) return;
+      const c = contenuRappel(e, i, objectif, Date.now(), magasin.reglages.margeRappelMin * 60);
       if (!c.ok) return noter(i, c.raison);
       occuper(i, true);
       const r = await planifierApi({ subscription: enJson(sub), at: c.at, titre: c.titre, corps: c.corps, url: c.url, enclos: i });
       occuper(i, false);
       if (!r.ok) return noter(i, `Notification non planifiée : ${r.erreur}`);
-      /* Ressaisi pendant l'appel : ce rappel est déjà périmé, on l'annule. */
-      if (!useStore.getState().setRappel(i, e.saisieLe, { messageId: r.data.messageId, at: r.data.at }))
+      /* Ressaisi pendant l'appel (ou passage en démo) : ce rappel est déjà périmé, on l'annule. */
+      if (magasinActif().getState().demo || !magasinActif().getState().setRappel(i, e.saisieLe, { messageId: r.data.messageId, at: r.data.at }))
         return void annulerApi(r.data.messageId, sub.endpoint);
       noter(i, null);
     },
     [push.subscription],
   );
 
+  const pushActif = !demo && push.etat.statut === "pret" && push.etat.abonne;
+
+  /* Replanifie un rappel déjà posé (objectif ou marge changés : l'heure d'envoi change). */
+  const replanifier = (i: number) => {
+    const e = magasinActif().getState().enclos[i];
+    if (demo || !e?.rappel || !magasinActif().getState().setRappel(i, e.saisieLe, null)) return;
+    void annulerRappel(e);
+    void planifierRappel(i, { ...e, rappel: null }, e.objectif);
+  };
+
   const sauver = (i: number, e: Enclos) => {
-    const r = enclosSchema.safeParse({ ...e, rappel: null });
-    if (!r.success) return;
-    const ancien = useStore.getState().enclos[i];
-    useStore.setState({ enclos: remplacerEnclos(useStore.getState().enclos, i, r.data) });
+    const magasin = magasinActif().getState();
+    const ancien = magasin.enclos[i];
+    /* l'objectif choisi reste celui de l'enclos, même après une nouvelle saisie */
+    if (!magasin.setEnclos(i, { ...e, objectif: ancien.objectif })) return;
     noter(i, null);
+    if (demo) return;
     /* Ressaisie ou enclos vidé : l'ancien rappel est annulé, puis replanifié si cet appareil est abonné. */
     void annulerRappel(ancien);
-    if (r.data.saisieLe !== null && push.etat.statut === "pret" && push.etat.abonne)
-      void planifierRappel(i, r.data, objectifs[i] ?? "aucun");
+    const nouveau = magasinActif().getState().enclos[i];
+    if (nouveau.saisieLe !== null && pushActif) void planifierRappel(i, nouveau, nouveau.objectif);
   };
   const vider = (i: number) => sauver(i, enclosSchema.parse({ nom: enclos[i].nom }));
 
   const changerObjectif = (i: number, o: Objectif) => {
-    setObjectifs((p) => p.map((x, k) => (k === i ? o : x)));
-    /* L'objectif change l'heure de retour : on replanifie un rappel existant. */
-    const e = enclos[i];
-    if (e.rappel && useStore.getState().setRappel(i, e.saisieLe, null)) {
-      void annulerRappel(e);
-      void planifierRappel(i, { ...e, rappel: null }, o);
-    }
+    if (magasinActif().getState().setObjectif(i, o)) replanifier(i);
+  };
+
+  const changerMarge = (min: number) => {
+    if (!magasinActif().getState().setMargeRappel(min)) return;
+    magasinActif()
+      .getState()
+      .enclos.forEach((e, i) => e.rappel && replanifier(i));
   };
 
   const activerPush = async (i: number) => {
     const sub = push.subscription ?? (await push.activer());
-    if (sub) await planifierRappel(i, enclos[i], objectifs[i] ?? "aucun", sub);
+    const e = magasinActif().getState().enclos[i];
+    if (sub) await planifierRappel(i, e, e.objectif, sub);
   };
   const annulerPush = (i: number) => {
     const e = enclos[i];
-    if (useStore.getState().setRappel(i, e.saisieLe, null)) void annulerRappel(e);
+    if (magasinActif().getState().setRappel(i, e.saisieLe, null)) void annulerRappel(e);
   };
 
   return (
-    <main className="mx-auto flex min-h-screen max-w-5xl flex-col gap-4 p-4 sm:p-6">
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <Link href="/" className="text-sm text-muted-foreground underline underline-offset-4">
-            ← Accueil
-          </Link>
-          <h1 className="text-2xl font-bold">Mes enclos</h1>
-        </div>
-        <ThemeToggle />
-      </header>
-      <p className="text-sm text-muted-foreground">
-        En quittant un enclos, note la sérénité de chaque monture et le niveau des jauges : l&apos;outil te dit à
-        quelle heure revenir. Les 6 enclos sont triés, le plus urgent en haut. Tout reste dans ce navigateur.
-      </p>
+    <Page>
+      <EnTete titre="Mes enclos" actions={<BoutonDemo />}>
+        En quittant un enclos, note la sérénité de chaque monture et le niveau des jauges : l&apos;outil te dit à quelle
+        heure revenir. Le plus urgent est en haut.
+      </EnTete>
+
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-card p-3 text-sm">
+        <span className="flex items-center gap-1.5 font-medium">
+          <BellRing className="size-4 text-primary" aria-hidden />
+          Me prévenir
+        </span>
+        <Choix
+          label="Marge des rappels avant l'heure de retour"
+          taille="sm"
+          valeur={margeMin}
+          onChange={changerMarge}
+          options={MARGES_RAPPEL_MIN.map((m) => ({ valeur: m, label: m === 0 ? "à l’heure" : `${m} min` }))}
+        />
+        <span className="text-muted-foreground">avant l&apos;heure de retour (agenda et notifications).</span>
+      </div>
+
       {!pret ? (
         <p className="text-muted-foreground">Chargement…</p>
       ) : (
@@ -151,12 +167,13 @@ export function EnclosPanel() {
               vue={v}
               maintenantMs={maintenant}
               premier={rang === 0}
-              objectif={objectifs[v.index] ?? "aucun"}
+              margeMin={margeMin}
               onObjectif={(o) => changerObjectif(v.index, o)}
               push={{
                 etat: push.etat,
                 enCours: enCours[v.index] ?? false,
                 note: notes[v.index] ?? null,
+                demo,
                 onActiver: () => void activerPush(v.index),
                 onAnnuler: () => annulerPush(v.index),
               }}
@@ -166,6 +183,6 @@ export function EnclosPanel() {
           ))}
         </div>
       )}
-    </main>
+    </Page>
   );
 }

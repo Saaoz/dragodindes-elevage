@@ -1,15 +1,20 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { BellRing, CalendarPlus, Clock, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ICONES_JAUGE, champ, EnclosForm } from "@/components/enclos/enclos-form";
+import { Choix } from "@/components/commun/choix";
+import { VisageIcone } from "@/components/commun/visage";
+import { EnclosForm } from "@/components/enclos/enclos-form";
+import { IconeJauge } from "@/components/enclos/icone-jauge";
 import {
   brouillonDe,
   formatDuree,
   formatHeure,
   formatNombre,
   formatSerenite,
-  MARGE_RETOUR_S,
+  heureRappel,
+  libelleMarge,
   visageDe,
   type Objectif,
   type VueEnclos,
@@ -25,13 +30,15 @@ export interface PushCarte {
   etat: EtatPush;
   enCours: boolean;
   note: string | null;
+  /* mode démo : aucune notification n'est planifiée */
+  demo: boolean;
   onActiver: () => void;
   onAnnuler: () => void;
 }
 
 type Permission = NotificationPermission | "indisponible";
 
-function evenementAgenda(enclos: Enclos, vue: VueEnclos, maintenantMs: number): EvenementAgenda | null {
+function evenementAgenda(enclos: Enclos, vue: VueEnclos, maintenantMs: number, margeMin: number): EvenementAgenda | null {
   if (!vue.retour) return null;
   const nom = enclos.nom || `Enclos ${vue.index + 1}`;
   const avant = formatHeure(vue.retour.quandMs, maintenantMs);
@@ -43,7 +50,7 @@ function evenementAgenda(enclos: Enclos, vue: VueEnclos, maintenantMs: number): 
     uid: `enclos-${vue.index + 1}@dragodindes-elevage`,
     titre: `${nom} : reviens avant ${avant}`,
     description: lignes.join("\n"),
-    debutMs: Math.max(vue.retour.quandMs - MARGE_RETOUR_S * 1000, maintenantMs),
+    debutMs: heureRappel(vue.retour.quandMs, margeMin, maintenantMs),
     dureeMin: 10,
     alarmeMin: 0,
     maintenantMs,
@@ -61,12 +68,17 @@ function telecharger(nomFichier: string, contenu: string) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+const OBJECTIFS: { valeur: Objectif; label: string }[] = [
+  { valeur: "aucun", label: "Éviter ±5 000" },
+  { valeur: "maturite", label: "Rester en Maturité" },
+];
+
 export function EnclosCard({
   enclos,
   vue,
   maintenantMs,
   premier,
-  objectif,
+  margeMin,
   onObjectif,
   onSave,
   onClear,
@@ -76,7 +88,7 @@ export function EnclosCard({
   vue: VueEnclos;
   maintenantMs: number;
   premier: boolean;
-  objectif: Objectif;
+  margeMin: number;
   onObjectif: (o: Objectif) => void;
   onSave: (e: Enclos) => void;
   onClear: () => void;
@@ -115,7 +127,7 @@ export function EnclosCard({
     return () => clearTimeout(id);
   }, [rappelA, nom, vue.index]);
 
-  const evt = evenementAgenda(enclos, vue, maintenantMs);
+  const evt = evenementAgenda(enclos, vue, maintenantMs, margeMin);
 
   const activerRappel = async () => {
     if (!retour) return;
@@ -126,8 +138,12 @@ export function EnclosCard({
     let p: NotificationPermission = Notification.permission;
     if (p === "default") p = await Notification.requestPermission();
     setPermission(p);
-    if (p === "granted") setRappelA(retour.quandMs - MARGE_RETOUR_S * 1000);
+    if (p === "granted") setRappelA(heureRappel(retour.quandMs, margeMin, Date.now()));
   };
+
+  const serenites = plan.etat.serenites;
+  const sMin = Math.min(...serenites);
+  const sMax = Math.max(...serenites);
 
   return (
     <section
@@ -135,17 +151,21 @@ export function EnclosCard({
       tabIndex={-1}
       aria-label={nom}
       className={cn(
-        "flex scroll-mt-4 flex-col gap-3 rounded-xl border bg-card p-4 text-card-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring",
-        urgent && "border-red-500/60",
+        "flex scroll-mt-20 flex-col gap-4 rounded-xl border bg-card p-4 text-card-foreground shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
+        saisi && urgent && "border-destructive/60",
       )}
     >
       <header className="flex items-start justify-between gap-2">
-        <div>
-          <h2 className="text-lg font-semibold">{nom}</h2>
-          {premier && retour && <span className="text-xs font-medium text-red-700 dark:text-red-300">Le plus urgent</span>}
+        <div className="min-w-0">
+          <h2 className="truncate text-lg font-semibold">{nom}</h2>
+          {premier && retour && (
+            <span className="mt-0.5 inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+              Le plus urgent
+            </span>
+          )}
         </div>
         {!edition && (
-          <Button variant={saisi ? "outline" : "default"} size="sm" onClick={() => setEdition(true)}>
+          <Button variant={saisi ? "outline" : "default"} onClick={() => setEdition(true)}>
             {saisi ? "Je quitte l’enclos" : "Saisir cet enclos"}
           </Button>
         )}
@@ -166,78 +186,93 @@ export function EnclosCard({
       ) : (
         <>
           {retour ? (
-            <div>
-              <p className="text-2xl font-bold">
-                {depasse ? "Retour dépassé" : `Reviens avant ${formatHeure(retour.quandMs, maintenantMs)}`}
-              </p>
-              <p className={cn("text-sm", urgent ? "text-red-700 dark:text-red-300" : "text-muted-foreground")}>
-                {depasse
-                  ? `depuis ${formatDuree(-(reste ?? 0))}`
-                  : `dans ${formatDuree(reste ?? 0)}`}
-                {" · "}
-                {retour.evenement.type === "jaugeVide"
-                  ? "jauge de sérénité vide à ce moment-là"
-                  : retour.evenement.type === "sortieZone"
-                    ? "une monture sort de la zone Maturité"
-                    : "une monture atteint ±5 000"}
-              </p>
+            <div
+              className={cn(
+                "flex items-start gap-3 rounded-lg p-3",
+                urgent ? "bg-destructive/10" : "bg-primary/10",
+              )}
+            >
+              <Clock className={cn("mt-1 size-5 shrink-0", urgent ? "text-destructive" : "text-primary")} aria-hidden />
+              <div>
+                <p className="text-2xl leading-tight font-bold">
+                  {depasse ? "Retour dépassé" : `Reviens avant ${formatHeure(retour.quandMs, maintenantMs)}`}
+                </p>
+                <p className={cn("text-sm", urgent ? "font-medium text-destructive" : "text-muted-foreground")}>
+                  {depasse ? `depuis ${formatDuree(-(reste ?? 0))}` : `dans ${formatDuree(reste ?? 0)}`}
+                  {" · "}
+                  {retour.evenement.type === "jaugeVide"
+                    ? "jauge de sérénité vide à ce moment-là"
+                    : retour.evenement.type === "sortieZone"
+                      ? "une monture sort de la zone Maturité"
+                      : "une monture atteint ±5 000"}
+                </p>
+              </div>
             </div>
           ) : (
-            <p className="text-sm text-muted-foreground">
+            <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
               Aucune jauge de sérénité active : rien ne bouge, pas d&apos;heure de retour à prévoir.
             </p>
           )}
 
           {alerte && (
-            <p role="alert" className="rounded-lg bg-red-500/10 p-3 text-sm font-medium text-red-700 dark:text-red-300">
-              Alerte : la monture {alerte.monture + 1} atteindra {formatSerenite(alerte.valeur)} à{" "}
-              {formatHeure(alerte.quandMs, maintenantMs)}. Si tu reviens plus tard, {formatNombre(alerte.gaspille)} points de
-              jauge sont gaspillés pour elle.
+            <p role="alert" className="flex gap-2 rounded-lg border border-destructive/40 p-3 text-sm text-destructive">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span>
+                <strong>Alerte</strong> : la monture {alerte.monture + 1} atteindra {formatSerenite(alerte.valeur)} à{" "}
+                {formatHeure(alerte.quandMs, maintenantMs)}. Si tu reviens plus tard, {formatNombre(alerte.gaspille)} points
+                de jauge sont gaspillés pour elle.
+              </span>
             </p>
           )}
 
-          <div className="text-sm">
+          <div className="flex flex-col gap-2 text-sm">
             <p className="font-medium">
-              Sérénité estimée maintenant :{" "}
-              {formatSerenite(Math.min(...plan.etat.serenites))}
-              {Math.min(...plan.etat.serenites) !== Math.max(...plan.etat.serenites) &&
-                ` à ${formatSerenite(Math.max(...plan.etat.serenites))}`}
+              Sérénité estimée maintenant : {formatSerenite(sMin)}
+              {sMin !== sMax && ` à ${formatSerenite(sMax)}`}
             </p>
-            <ul className="mt-1 flex flex-wrap gap-1.5">
-              {plan.etat.serenites.map((s, i) => (
-                <li key={i} className="rounded-md bg-muted px-2 py-0.5 text-xs">
-                  <span className="font-mono font-bold">{visageDe(s).texte}</span> M{i + 1} {formatSerenite(s)}
-                </li>
-              ))}
+            <ul className="flex flex-wrap gap-1.5" aria-label="Sérénité estimée de chaque monture">
+              {serenites.map((s, i) => {
+                const v = visageDe(s);
+                return (
+                  <li key={i} className="flex items-center gap-1.5 rounded-full border bg-background py-0.5 pr-2.5 pl-0.5 text-xs">
+                    <VisageIcone id={v.id} className="size-5" />
+                    <span className="sr-only">visage {v.nom.toLowerCase()},</span>
+                    <span className="text-muted-foreground">M{i + 1}</span>
+                    <span className="font-medium tabular-nums">{formatSerenite(s)}</span>
+                  </li>
+                );
+              })}
             </ul>
             {plan.etat.sens && (
-              <p className="mt-1 text-muted-foreground">
+              <p className="text-muted-foreground">
                 Jauge Sérénité {plan.etat.sens === "+" ? "+" : "−"} : {formatNombre(plan.etat.niveauJauge)} /{" "}
                 {formatNombre(CAPACITE_JAUGE)} (estimé)
               </p>
             )}
             {enclos.autreJauge && vue.autreVideMs !== null && (
-              <p className="text-muted-foreground">
-                Jauge {enclos.autreJauge} {ICONES_JAUGE[enclos.autreJauge]} vide à {formatHeure(vue.autreVideMs, maintenantMs)}
+              <p className="flex items-center gap-1.5 text-muted-foreground">
+                <IconeJauge jauge={enclos.autreJauge} />
+                Jauge {enclos.autreJauge} vide à {formatHeure(vue.autreVideMs, maintenantMs)}
               </p>
             )}
           </div>
 
-          <div className="flex flex-col gap-1 text-sm">
-            <label className="flex items-center gap-2 text-muted-foreground">
-              Objectif
-              <select
-                className={cn(champ, "w-auto")}
-                value={objectif}
-                onChange={(e) => onObjectif(e.target.value as Objectif)}
-              >
-                <option value="aucun">Éviter ±5 000</option>
-                <option value="maturite">Rester en Maturité (−2 000 à +2 000)</option>
-              </select>
-            </label>
+          <div className="flex flex-col gap-2 text-sm">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+              <span className="font-medium" id={`objectif-${vue.index}`}>
+                Objectif
+              </span>
+              <Choix
+                label={`Objectif de ${nom}`}
+                taille="sm"
+                valeur={enclos.objectif}
+                onChange={onObjectif}
+                options={OBJECTIFS}
+              />
+            </div>
             {plan.aRemplir.message && <p>{plan.aRemplir.message}</p>}
             {plan.aRemplir.statut === "tropEcartees" && plan.aRemplir.groupes && (
-              <p className="text-amber-700 dark:text-amber-300">
+              <p className="text-warning">
                 Regroupement conseillé :{" "}
                 {plan.aRemplir.groupes.map((g) => `enclos ${g.map((i) => `M${i + 1}`).join(" + ")}`).join(" / ")}.
               </p>
@@ -245,26 +280,31 @@ export function EnclosCard({
           </div>
 
           {evt && (
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-col gap-2 border-t pt-3">
+              <p className="flex items-center gap-1.5 text-sm font-medium">
+                <BellRing className="size-4 text-primary" aria-hidden />
+                Rappel {libelleMarge(margeMin)} l&apos;heure de retour, soit à{" "}
+                {formatHeure(heureRappel(retour!.quandMs, margeMin, maintenantMs), maintenantMs)}
+              </p>
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => telecharger(nomFichierIcs(`retour-${nom}`), construireIcs(evt))}>
-                  Ajouter à mon agenda
+                <Button onClick={() => telecharger(nomFichierIcs(`retour-${nom}`), construireIcs(evt))}>
+                  <CalendarPlus aria-hidden /> Ajouter à mon agenda
                 </Button>
                 <a
                   href={lienGoogleAgenda(evt)}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex h-7 items-center rounded-lg border border-border px-2.5 text-[0.8rem] font-medium hover:bg-muted"
+                  className="inline-flex h-8 items-center rounded-lg border border-border bg-background px-2.5 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/20"
                 >
                   Google Agenda
                 </a>
-                <Button size="sm" variant="outline" onClick={activerRappel} disabled={rappelA !== null}>
-                  {rappelA !== null ? `Rappel ici à ${formatHeure(rappelA, maintenantMs)}` : "Me prévenir ici"}
+                <Button variant="outline" onClick={activerRappel} disabled={rappelA !== null}>
+                  {rappelA !== null ? `Prévenu ici à ${formatHeure(rappelA, maintenantMs)}` : "Me prévenir dans cet onglet"}
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                « Me prévenir ici » ne marche que si l&apos;onglet reste ouvert.
-                {permission === "denied" && " Les notifications sont bloquées par ton navigateur."}
+                « Dans cet onglet » : seulement tant que l&apos;onglet reste ouvert (perdu au rechargement).
+                {permission === "denied" && " Notifications bloquées par ton navigateur."}
                 {permission === "indisponible" && " Les notifications ne sont pas disponibles sur ce navigateur."}
               </p>
               <BlocPush push={push} rappel={enclos.rappel} maintenantMs={maintenantMs} />
@@ -272,7 +312,7 @@ export function EnclosCard({
           )}
 
           <div>
-            <Button variant="ghost" size="xs" onClick={onClear}>
+            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={onClear}>
               Vider cet enclos
             </Button>
           </div>
@@ -292,8 +332,8 @@ function BlocPush({
   rappel: Enclos["rappel"];
   maintenantMs: number;
 }) {
-  const { etat, enCours, note } = push;
-  const prevu = rappel !== null && rappel.at > maintenantMs;
+  const { etat, enCours, note, demo } = push;
+  const prevu = !demo && rappel !== null && rappel.at > maintenantMs;
   return (
     <div className="flex flex-col gap-1.5 rounded-lg border border-dashed p-2.5" data-testid="bloc-push">
       {prevu ? (
@@ -301,36 +341,41 @@ function BlocPush({
           <p className="text-sm font-medium" role="status">
             Notification prévue à {formatHeure(rappel.at, maintenantMs)} sur ce téléphone
           </p>
-          <Button size="xs" variant="ghost" onClick={push.onAnnuler}>
+          <Button size="sm" variant="ghost" onClick={push.onAnnuler}>
             Annuler la notification
           </Button>
         </div>
       ) : (
         <Button
-          size="sm"
           variant="secondary"
           className="self-start"
           onClick={push.onActiver}
-          disabled={etat.statut !== "pret" || enCours}
+          disabled={demo || etat.statut !== "pret" || enCours}
         >
           {enCours ? "Planification…" : "Recevoir une notification sur ce téléphone"}
         </Button>
       )}
-      {etat.statut === "indisponible" && (
-        <p className="text-xs text-amber-700 dark:text-amber-300">
-          {MESSAGES_INDISPO[etat.raison]} Utilise plutôt « Ajouter à mon agenda » : l&apos;alarme de ton agenda sonnera
-          à l&apos;heure.
-        </p>
-      )}
-      {etat.statut === "pret" && !prevu && (
-        <p className="text-xs text-muted-foreground">
-          {etat.abonne
-            ? "Notifications activées sur cet appareil : chaque saisie planifie automatiquement son rappel."
-            : "Tu seras prévenu à l’heure de retour, même onglet fermé ou téléphone en poche."}
-        </p>
+      {demo ? (
+        <p className="text-xs text-muted-foreground">Pas de notification en mode démo.</p>
+      ) : (
+        <>
+          {etat.statut === "indisponible" && (
+            <p className="text-xs text-warning">
+              {MESSAGES_INDISPO[etat.raison]} Utilise plutôt « Ajouter à mon agenda » : l&apos;alarme de ton agenda
+              sonnera à l&apos;heure.
+            </p>
+          )}
+          {etat.statut === "pret" && !prevu && (
+            <p className="text-xs text-muted-foreground">
+              {etat.abonne
+                ? "Notifications activées sur cet appareil : chaque saisie planifie automatiquement son rappel."
+                : "Tu seras prévenu à l’heure du rappel, même onglet fermé ou téléphone en poche."}
+            </p>
+          )}
+        </>
       )}
       {note && (
-        <p className="text-xs text-amber-700 dark:text-amber-300" role="status">
+        <p className="text-xs text-warning" role="status">
           {note}
         </p>
       )}
