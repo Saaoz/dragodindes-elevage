@@ -9,12 +9,15 @@ import { EnclosForm } from "@/components/enclos/enclos-form";
 import { IconeJauge } from "@/components/enclos/icone-jauge";
 import {
   brouillonDe,
+  CONSEIL_RETARD,
   formatDuree,
   formatHeure,
   formatNombre,
   formatSerenite,
   heureRappel,
   libelleMarge,
+  libelleRetard,
+  texteAlerte,
   visageDe,
   type Objectif,
   type VueEnclos,
@@ -39,7 +42,8 @@ export interface PushCarte {
 type Permission = NotificationPermission | "indisponible";
 
 function evenementAgenda(enclos: Enclos, vue: VueEnclos, maintenantMs: number, margeMin: number): EvenementAgenda | null {
-  if (!vue.retour) return null;
+  /* heure de retour passée : aucun rappel ni agenda dans le passé (#31) */
+  if (!vue.retour || vue.retardS !== null) return null;
   const nom = enclos.nom || `Enclos ${vue.index + 1}`;
   const avant = formatHeure(vue.retour.quandMs, maintenantMs);
   const lignes = [`Reviens à « ${nom} » avant ${avant}.`];
@@ -101,7 +105,9 @@ export function EnclosCard({
   const saisi = enclos.saisieLe !== null;
   const { retour, alerte, plan } = vue;
   const reste = retour ? (retour.quandMs - maintenantMs) / 1000 : null;
-  const depasse = reste !== null && reste <= 0;
+  const depasse = vue.retardS !== null;
+  const retard = libelleRetard(vue, maintenantMs);
+  const jaugeVidee = vue.jaugeVideMs !== null && vue.jaugeVideMs <= maintenantMs;
   const urgent = alerte !== null || (reste !== null && reste < 900);
 
   useEffect(() => {
@@ -195,22 +201,29 @@ export function EnclosCard({
               <Clock className={cn("mt-1 size-5 shrink-0", urgent ? "text-destructive" : "text-primary")} aria-hidden />
               <div>
                 <p className="text-2xl leading-tight font-bold">
-                  {depasse ? "Retour dépassé" : `Reviens avant ${formatHeure(retour.quandMs, maintenantMs)}`}
+                  {depasse
+                    ? `Retour dépassé depuis ${formatDuree(vue.retardS ?? 0)}`
+                    : `Reviens avant ${formatHeure(retour.quandMs, maintenantMs)}`}
                 </p>
                 <p className={cn("text-sm", urgent ? "font-medium text-destructive" : "text-muted-foreground")}>
-                  {depasse ? `depuis ${formatDuree(-(reste ?? 0))}` : `dans ${formatDuree(reste ?? 0)}`}
-                  {" · "}
-                  {retour.evenement.type === "jaugeVide"
-                    ? "jauge de sérénité vide à ce moment-là"
-                    : retour.evenement.type === "sortieZone"
-                      ? "une monture sort de la zone Maturité"
-                      : "une monture atteint ±5 000"}
+                  {depasse && retard
+                    ? `${retard.charAt(0).toUpperCase()}${retard.slice(1)}.`
+                    : `dans ${formatDuree(reste ?? 0)} · ${
+                        retour.evenement.type === "jaugeVide"
+                          ? "jauge de sérénité vide à ce moment-là"
+                          : retour.evenement.type === "sortieZone"
+                            ? "une monture sort de la zone Maturité"
+                            : "une monture atteint ±5 000"
+                      }`}
                 </p>
+                {depasse && <p className="mt-1 text-sm">{CONSEIL_RETARD}</p>}
               </div>
             </div>
           ) : (
             <p className="rounded-lg bg-muted p-3 text-sm text-muted-foreground">
-              Aucune jauge de sérénité active : rien ne bouge, pas d&apos;heure de retour à prévoir.
+              {plan.etat.sens
+                ? "Jauge de sérénité vide à la saisie : rien ne bouge, pas d’heure de retour à prévoir."
+                : "Aucune jauge de sérénité active : rien ne bouge, pas d’heure de retour à prévoir."}
             </p>
           )}
 
@@ -218,9 +231,7 @@ export function EnclosCard({
             <p role="alert" className="flex gap-2 rounded-lg border border-destructive/40 p-3 text-sm text-destructive">
               <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
               <span>
-                <strong>Alerte</strong> : la monture {alerte.monture + 1} atteindra {formatSerenite(alerte.valeur)} à{" "}
-                {formatHeure(alerte.quandMs, maintenantMs)}. Si tu reviens plus tard, {formatNombre(alerte.gaspille)} points
-                de jauge sont gaspillés pour elle.
+                <strong>Alerte</strong> : {texteAlerte(alerte, maintenantMs)}
               </span>
             </p>
           )}
@@ -245,8 +256,10 @@ export function EnclosCard({
             </ul>
             {plan.etat.sens && (
               <p className="text-muted-foreground">
-                Jauge Sérénité {plan.etat.sens === "+" ? "+" : "−"} : {formatNombre(plan.etat.niveauJauge)} /{" "}
-                {formatNombre(CAPACITE_JAUGE)} (estimé)
+                Jauge Sérénité {plan.etat.sens === "+" ? "+" : "−"} :{" "}
+                {jaugeVidee
+                  ? `vide depuis ${formatHeure(vue.jaugeVideMs!, maintenantMs)}`
+                  : `${formatNombre(plan.etat.niveauJauge)} / ${formatNombre(CAPACITE_JAUGE)} (estimé)`}
               </p>
             )}
             {enclos.autreJauge && vue.autreVideMs !== null && (

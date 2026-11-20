@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   brouillonDe,
+  CONSEIL_RETARD,
   enclosUrgents,
+  libelleRetard,
+  texteAlerte,
   heureRappel,
   libelleMarge,
   enclosDeBrouillon,
@@ -172,5 +175,109 @@ describe("refonte (#4) : marge réglable et tableau de bord", () => {
     const e = { ...enclosTest([1500], 200000), objectif: "maturite" as const };
     expect(vueEnclos(e, 0, T0).retour?.evenement.type).toBe("sortieZone");
     expect(vueEnclos(e, 0, T0, "aucun").retour?.evenement.type).not.toBe("sortieZone");
+  });
+});
+
+describe("retour dépassé (#31) : les événements gardent leur vraie heure, calculée depuis la saisie", () => {
+  const S = 1000;
+  /* −3 000 en Sérénité + pleine : +5 000 atteint après 8 000 points, en tier 4, soit 2 000 s (21 h 33 min 20 s) */
+  const borne = enclosTest([-3000], 200000);
+  const H_BORNE = T0 + 2000 * S;
+
+  it("avant l'heure : mêmes heures que le calcul depuis maintenant, alerte au futur", () => {
+    for (const t of [0, 600, 1999]) {
+      const v = vueEnclos(borne, 0, T0 + t * S);
+      expect(v.retour?.quandMs).toBe(H_BORNE);
+      expect(v.retardS).toBeNull();
+      expect(v.alerte).toMatchObject({ quandMs: H_BORNE, passee: false, gaspilleDeja: 0, gaspille: 192000 });
+      expect(libelleRetard(v, T0 + t * S)).toBeNull();
+    }
+    expect(texteAlerte(vueEnclos(borne, 0, T0).alerte!, T0)).toBe(
+      "la monture 1 atteindra +5 000 à 21 h 33. Si tu reviens plus tard, 192 000 points de jauge sont gaspillés pour elle.",
+    );
+  });
+
+  it("pile à l'heure : retard de 0 s, alerte au passé, rien encore de gaspillé", () => {
+    const v = vueEnclos(borne, 0, H_BORNE);
+    expect(v.retour?.quandMs).toBe(H_BORNE);
+    expect(v.retardS).toBe(0);
+    expect(v.alerte).toMatchObject({ passee: true, gaspilleDeja: 0 });
+    expect(libelleRetard(v, H_BORNE)).toBe("la monture 1 est à +5 000 depuis 21 h 33");
+  });
+
+  it("monture à la borne depuis 1 h : vrai retard, points gaspillés, alerte au passé, plus « objectif déjà atteint »", () => {
+    const maintenant = H_BORNE + 3600 * S;
+    const v = vueEnclos(borne, 0, maintenant);
+    expect(v.retour?.evenement.type).toBe("premiereBorne");
+    expect(v.retour?.quandMs).toBe(H_BORNE);
+    expect(v.retardS).toBe(3600);
+    /* 5 600 s : 20 000 points en tier 4 (5 000 s) puis 600 s × 3 = 21 800 consommés, dont 8 000 avant la borne */
+    expect(v.alerte).toMatchObject({ quandMs: H_BORNE, passee: true, gaspilleDeja: 13800, gaspille: 192000 });
+    expect(libelleRetard(v, maintenant)).toBe("la monture 1 est à +5 000 depuis 21 h 33, 13 800 points de jauge gaspillés");
+    expect(texteAlerte(v.alerte!, maintenant)).toBe(
+      "la monture 1 a atteint +5 000 à 21 h 33 : 13 800 points de jauge gaspillés pour elle depuis, jusqu’à 192 000 si tu ne reviens pas.",
+    );
+    expect(v.plan.etat.serenites).toEqual([5000]);
+    expect(v.plan.aRemplir.statut).not.toBe("dejaAtteint");
+    expect(v.plan.aRemplir.message).not.toMatch(/déjà atteint/);
+    expect(CONSEIL_RETARD).toMatch(/Je quitte l’enclos/);
+  });
+
+  it("jauge vide après la borne : tout le gaspillage est compté, la jauge vide garde son heure", () => {
+    const maintenant = T0 + 48 * 3600 * S;
+    const v = vueEnclos(borne, 0, maintenant);
+    expect(v.retour?.quandMs).toBe(H_BORNE);
+    expect(v.alerte).toMatchObject({ gaspilleDeja: 192000, gaspille: 192000 });
+    expect(texteAlerte(v.alerte!, maintenant)).toMatch(/^la monture 1 a atteint \+5 000 à .+ 21 h 33 : 192 000 points de jauge gaspillés pour elle\.$/);
+    expect(v.jaugeVideMs).toBeLessThan(maintenant);
+    expect(v.jaugeVideMs).toBe(T0 + Math.round(vueEnclos(borne, 0, T0).plan.tempsVide * S));
+  });
+
+  it("jauge vidée sans borne atteinte : la jauge vide reste l'heure de retour, l'enclos reste sur l'accueil", () => {
+    /* −4 000 et 3 000 points en tier 1 : jauge vide à 21 h 50, la monture finit à −1 000 */
+    const e = enclosTest([-4000], 3000);
+    const maintenant = T0 + 2 * 3600 * S;
+    const v = vueEnclos(e, 0, maintenant);
+    expect(v.plan.etat.niveauJauge).toBe(0);
+    expect(v.retour).toMatchObject({ evenement: { type: "jaugeVide" }, quandMs: T0 + 3000 * S });
+    expect(v.retardS).toBe(4200);
+    expect(v.jaugeVideMs).toBe(T0 + 3000 * S);
+    expect(v.alerte).toBeNull();
+    expect(libelleRetard(v, maintenant)).toBe("jauge Sérénité + vide depuis 21 h 50");
+
+    const liste = defaultEnclos();
+    liste[3] = e;
+    liste[0] = { ...enclosTest([0], 200000, "-"), saisieLe: maintenant }; // −5 000 dans le futur
+    expect(enclosUrgents(liste, maintenant).map((x) => x.index)).toEqual([3, 0]);
+  });
+
+  it("Sérénité − : libellés avec le bon signe", () => {
+    const e = enclosTest([0], 3000, "-");
+    const v = vueEnclos(e, 0, T0 + 4000 * S);
+    expect(libelleRetard(v, T0 + 4000 * S)).toBe("jauge Sérénité − vide depuis 21 h 50");
+  });
+
+  it("objectif Maturité dépassé : sortie de zone à sa vraie heure, au passé", () => {
+    /* +1 500 en Sérénité + pleine : +2 000 après 500 points (125 s), +5 000 après 3 500 points (875 s) */
+    const e = { ...enclosTest([1500], 200000), objectif: "maturite" as const };
+    const maintenant = T0 + 3600 * S;
+    const v = vueEnclos(e, 0, maintenant);
+    expect(v.retour).toMatchObject({ evenement: { type: "sortieZone" }, quandMs: T0 + 125 * S });
+    expect(v.retardS).toBe(3475);
+    expect(libelleRetard(v, maintenant)).toBe("la monture 1 est sortie de la zone Maturité à 21 h 02");
+    expect(v.alerte).toMatchObject({ quandMs: T0 + 875 * S, passee: true });
+    /* toutes les montures au-dessus de la Maturité : le conseil est de passer à Sérénité − */
+    expect(v.plan.aRemplir).toMatchObject({ statut: "sensIncoherent", sensConseille: "-" });
+  });
+
+  it("enclos en retard en tête du tableau de bord, devant un retour à venir", () => {
+    const maintenant = H_BORNE + 3600 * S;
+    const liste = defaultEnclos();
+    liste[5] = borne;
+    liste[1] = { ...enclosTest([0], 200000), saisieLe: maintenant };
+    const u = enclosUrgents(liste, maintenant);
+    expect(u.map((v) => v.index)).toEqual([5, 1]);
+    expect(u[0].retardS).toBe(3600);
+    expect(u[1].retardS).toBeNull();
   });
 });

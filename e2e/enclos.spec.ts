@@ -140,3 +140,55 @@ test("un lien de notification ouvre l'enclos concerné", async ({ page }) => {
   await expect(page.locator("#enclos-3")).toBeFocused();
   await expect(page.locator("#enclos-3")).toHaveAccessibleName("Enclos 3");
 });
+
+test("retour dépassé (#31) : vraie durée de retard, alerte au passé, pas d'agenda, l'enclos reste sur l'accueil", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisir(page); // −3 000, Sérénité + pleine : +5 000 atteint à 21 h 33 min 20 s
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  await expect(carte.getByText(/Reviens avant 21 h 33/)).toBeVisible();
+
+  /* le joueur revient 1 h 26 min 40 s après l'heure de retour (23 h 00) */
+  await page.clock.fastForward("02:00:00");
+  await expect(carte.getByText("Retour dépassé depuis 1 h 26 min")).toBeVisible();
+  await expect(carte.getByText(/La monture 1 est à \+5 000 depuis 21 h 33, 18 600 points de jauge gaspillés/)).toBeVisible();
+  await expect(carte.getByRole("alert")).toContainText("a atteint +5 000 à 21 h 33");
+  await expect(carte.getByRole("alert")).not.toContainText("atteindra");
+  await expect(carte.getByText(/clique « Je quitte l’enclos »/)).toBeVisible();
+  await expect(carte.getByText(/Objectif déjà atteint/)).toHaveCount(0);
+  await expect(carte.getByRole("button", { name: "Ajouter à mon agenda" })).toHaveCount(0);
+  await expect(carte.getByText(/Rappel .* l.heure de retour/)).toHaveCount(0);
+  await expect(page).toHaveTitle(/^En retard · Enclos 1/);
+
+  /* la durée avance avec l'horloge (elle ne reste plus bloquée à 0 s) */
+  await page.clock.fastForward("00:10:00");
+  await expect(carte.getByText("Retour dépassé depuis 1 h 36 min")).toBeVisible();
+
+  await page.getByRole("link", { name: "Accueil", exact: true }).click();
+  const lien = page.getByRole("link", { name: /Enclos 1.*Retour dépassé/ });
+  await expect(lien).toBeVisible();
+  await expect(lien).toContainText("depuis 1 h 36 min · la monture 1 est à +5 000 depuis 21 h 33");
+});
+
+test("retour dépassé (#31) : jauge vidée sans borne atteinte, toujours visible et sur l'accueil", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  await carte.getByRole("button", { name: "Saisir cet enclos" }).click();
+  await page.getByLabel("Sérénité exacte de la monture 1").fill("-4000");
+  await page.getByRole("button", { name: "Sérénité +" }).click();
+  await page.getByPlaceholder("ex. 200000 ou 85k").fill("3000");
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+  await expect(carte.getByText(/Reviens avant 21 h 50/)).toBeVisible();
+
+  await page.clock.fastForward("02:00:00");
+  await expect(carte.getByText("Retour dépassé depuis 1 h 10 min")).toBeVisible();
+  await expect(carte.getByText("Jauge Sérénité + vide depuis 21 h 50.")).toBeVisible();
+  await expect(carte.getByText(/Jauge Sérénité \+ : vide depuis 21 h 50/)).toBeVisible();
+  await expect(carte.getByText(/Aucune jauge de sérénité active/)).toHaveCount(0);
+  await expect(carte.getByRole("button", { name: "Ajouter à mon agenda" })).toHaveCount(0);
+
+  await page.getByRole("link", { name: "Accueil", exact: true }).click();
+  await expect(page.getByRole("link", { name: /Enclos 1.*Retour dépassé.*jauge Sérénité \+ vide depuis 21 h 50/ })).toBeVisible();
+  await expect(page.getByText(/Aucune jauge de sérénité active/)).toHaveCount(0);
+});

@@ -7,7 +7,7 @@ import { useApp, useUi } from "@/components/app-state";
 import { Page } from "@/components/commun/en-tete";
 import { InstallApp } from "@/components/install-app";
 import { buttonVariants } from "@/components/ui/button";
-import { enclosUrgents, formatDuree, formatHeure } from "@/lib/enclos";
+import { enclosUrgents, formatDuree, formatHeure, libelleRetard } from "@/lib/enclos";
 import { almanaxDuMois } from "@/lib/guide";
 import { cn } from "@/lib/utils";
 
@@ -64,11 +64,13 @@ function EnclosASurveiller() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{nom}</p>
                     <p className={cn("font-bold tabular-nums", rang === 0 ? "text-xl" : "text-base")}>
-                      {reste <= 0 ? "Retour dépassé" : `Reviens avant ${formatHeure(v.retour!.quandMs, maintenant)}`}
+                      {v.retardS !== null ? "Retour dépassé" : `Reviens avant ${formatHeure(v.retour!.quandMs, maintenant)}`}
                     </p>
                     <p className={cn("text-xs", urgent ? "font-medium text-destructive" : "text-muted-foreground")}>
-                      {reste <= 0 ? `depuis ${formatDuree(-reste)}` : `dans ${formatDuree(reste)}`}
-                      {v.alerte && " · une monture va atteindre ±5 000"}
+                      {v.retardS !== null
+                        ? `depuis ${formatDuree(v.retardS)} · ${libelleRetard(v, maintenant)}`
+                        : `dans ${formatDuree(reste)}`}
+                      {v.alerte && v.retardS === null &&" · une monture va atteindre ±5 000"}
                     </p>
                   </div>
                   {v.alerte && <TriangleAlert className="size-5 shrink-0 text-destructive" aria-label="Alerte" />}

@@ -309,6 +309,14 @@ describe("contenu du rappel d'un enclos", () => {
     const c = contenuRappel(enclos, 0, "aucun", T0);
     if (c.ok) expect(contenuRappel(enclos, 0, "aucun", c.at - 30_000).ok).toBe(false);
   });
+
+  it("jamais de notification pour une heure de retour dépassée (#31)", () => {
+    /* −3 000 en Sérénité + pleine : +5 000 atteint 2 000 s après la saisie */
+    for (const apres of [2000, 2001, 3 * 3600]) {
+      const c = contenuRappel(enclos, 0, "aucun", T0 + apres * 1000);
+      expect(c).toMatchObject({ ok: false, raison: expect.stringMatching(/dépassée/) });
+    }
+  });
 });
 
 describe("marge réglable du rappel push (#4)", () => {

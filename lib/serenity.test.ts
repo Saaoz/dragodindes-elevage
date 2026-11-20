@@ -196,6 +196,16 @@ describe("serenityPlan : Sérénité −, zone, regroupement", () => {
     expect(plan.aRemplir).toMatchObject({ statut: "ok", sensConseille: "+", points: 3000, aAjouter: 3000 });
   });
 
+  it("monture déjà à ±5 000 sans objectif : pas « objectif déjà atteint », les points sont gaspillés (#31)", () => {
+    const plan = serenityPlan({ serenites: [5000, 1000], sens: "+", niveauJauge: 50000 });
+    expect(plan.aRemplir).toMatchObject({ statut: "horsZone", atteignable: false, points: 0, sensConseille: null });
+    expect(plan.aRemplir.message).not.toMatch(/déjà atteint/);
+    expect(plan.aRemplir.message).toMatch(/déjà à \+5 000.*gaspillé/);
+    expect(plan.aRemplir.message).not.toMatch(/reviens la couper/);
+    const moins = serenityPlan({ serenites: [-5000], sens: "-", niveauJauge: 0 });
+    expect(moins.aRemplir.message).toMatch(/déjà à −5 000.*Sérénité −.*Sérénité \+/);
+  });
+
   it("aucune jauge et aucun objectif", () => {
     const plan = serenityPlan({ serenites: [0], sens: null, niveauJauge: 0 });
     expect(plan.aRemplir).toMatchObject({ statut: "dejaAtteint", points: 0 });
