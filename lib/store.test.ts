@@ -1,9 +1,9 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- manipulation de JSON brut dans les tests */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fixture from "./__fixtures__/export-v2.json";
-import { defaultAppData } from "./schema";
+import { defaultAppData, type PriceKey } from "./schema";
 import {
-  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, demoData, migrateV1, parsePaste, priceValues, resetDemo,
+  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, demoData, migrateOptimakina, migrateV1, parseExport, parsePaste, priceValues, resetDemo,
   useDemoStore, useStore,
 } from "./store";
 
@@ -22,6 +22,8 @@ class MemStorage {
 }
 let mem: MemStorage;
 const fixtureText = JSON.stringify(fixture);
+/* Prix de la fixture v2 une fois l'Optimakina unique recopiée sur chaque génération. */
+const fixPrices = (migrateOptimakina(fixture.data) as any).prices;
 const st = () => useStore.getState();
 
 beforeEach(() => {
@@ -48,8 +50,8 @@ describe("import d'un export v2 réel", () => {
     expect(s.server).toBe("Imagiro");
     expect(s.theme).toBe("light");
     expect(s.matB).toBe("gen1");
-    expect(s.prices.Imagiro).toEqual(fixture.data.prices.Imagiro);
-    expect(s.prices.Orukam).toEqual(fixture.data.prices.Orukam);
+    expect(s.prices.Imagiro).toEqual(fixPrices.Imagiro);
+    expect(s.prices.Orukam).toEqual(fixPrices.Orukam);
     expect(priceValues(s.prices, "Imagiro").gen[5]).toBe(310000);
     expect(priceValues(s.prices, "Orukam").gen[6]).toBe(1180000);
     expect(s.prices.Tylezia).toBeUndefined();
@@ -72,7 +74,7 @@ describe("import d'un export v2 réel", () => {
     const before = dataOf(st());
     const out = st().exportJSON();
     const parsed = JSON.parse(out);
-    expect(parsed).toMatchObject({ app: "dd-elevage", schemaVersion: 3 });
+    expect(parsed).toMatchObject({ app: "dd-elevage", schemaVersion: 4 });
     expect(typeof parsed.exportedAt).toBe("string");
     useStore.setState(defaultAppData());
     expect(st().importJSON(out).ok).toBe(true);
@@ -132,7 +134,7 @@ describe("migration v1", () => {
     mem.m.clear();
     mem.setItem(LEGACY_V2_KEY, JSON.stringify(fixture.data));
     await useStore.persist.rehydrate();
-    expect(st().prices.Imagiro).toEqual(fixture.data.prices.Imagiro);
+    expect(st().prices.Imagiro).toEqual(fixPrices.Imagiro);
     expect(st().calc.optiBonus).toBe(10);
     expect(mem.getItem(LEGACY_V2_KEY)).not.toBeNull(); // clé v2 jamais modifiée
   });
@@ -142,7 +144,7 @@ describe("persistance", () => {
   it("écrit sous la clé v3 avec le numéro de version, et relit", async () => {
     st().setPrice("Imagiro", "g5", 300000);
     const stored = JSON.parse(mem.getItem(STORAGE_KEY)!);
-    expect(stored.version).toBe(3);
+    expect(stored.version).toBe(4);
     expect(stored.state.prices.Imagiro.g5.v).toBe(300000);
     expect("setPrice" in stored.state).toBe(false);
     const saved = mem.getItem(STORAGE_KEY)!;
@@ -262,7 +264,7 @@ describe("import JSON rejeté proprement", () => {
   it("JSON invalide", () => rejects("{pas du json", /JSON/));
   it("fichier d'une autre appli", () => rejects(JSON.stringify({ app: "autre", data: {} }), /non reconnu/));
   it("sans data", () => rejects(JSON.stringify({ app: "dd-elevage", schemaVersion: 2 })));
-  it("version future", () => rejects(JSON.stringify({ ...fixture, schemaVersion: 4 }), /plus récente/));
+  it("version future", () => rejects(JSON.stringify({ ...fixture, schemaVersion: 5 }), /plus récente/));
   it("version illisible", () => rejects(JSON.stringify({ ...fixture, schemaVersion: "x" })));
   it("prix négatif", () =>
     rejects(
@@ -344,7 +346,7 @@ describe("actions", () => {
   it("copyToAll copie en profondeur ; clearServer vide un seul serveur", () => {
     st().importJSON(fixtureText);
     st().copyToAll("Imagiro");
-    expect(st().prices.Tylezia).toEqual(fixture.data.prices.Imagiro);
+    expect(st().prices.Tylezia).toEqual(fixPrices.Imagiro);
     expect(st().prices.Tylezia).not.toBe(st().prices.Imagiro);
     st().clearServer("Imagiro");
     expect(st().prices.Imagiro).toBeUndefined();
@@ -363,6 +365,75 @@ describe("actions", () => {
   });
 });
 
+describe("Optimakina par génération : migration", () => {
+  const gens = [2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+  it("migrateOptimakina recopie le prix unique (et sa date) vers opti2..opti10", () => {
+    const m = migrateOptimakina({
+      prices: { Imagiro: { g1: { v: 5, t: 1 }, optimakina: { v: 150000, t: 99 } } },
+    }) as { prices: { Imagiro: Record<string, unknown> } };
+    const p = m.prices.Imagiro;
+    expect("optimakina" in p).toBe(false);
+    for (const g of gens) expect(p[`opti${g}`]).toEqual({ v: 150000, t: 99 });
+    expect(p.g1).toEqual({ v: 5, t: 1 });
+  });
+
+  it("n'écrase jamais un prix déjà saisi par génération, et est idempotent", () => {
+    const src = { prices: { Imagiro: { optimakina: { v: 100, t: 1 }, opti6: { v: 777, t: 2 } } } };
+    const m = migrateOptimakina(src) as typeof src;
+    expect((m.prices.Imagiro as Record<string, { v: number }>).opti6.v).toBe(777);
+    expect((m.prices.Imagiro as Record<string, { v: number }>).opti5.v).toBe(100);
+    expect(migrateOptimakina(m)).toEqual(m);
+    expect("optimakina" in src.prices.Imagiro).toBe(true); // entrée non modifiée
+  });
+
+  it("l'import de l'export v2 (fixture) reporte l'Optimakina sur toutes les générations", () => {
+    const r = parseExport(fixtureText);
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const sp = r.data.prices.Imagiro!;
+    for (const g of gens) expect(sp[`opti${g}` as PriceKey]).toEqual({ v: 150000, t: 1762972800000 });
+    expect(priceValues(r.data.prices, "Imagiro").opti.slice(2)).toEqual(Array(9).fill(150000));
+  });
+
+  it("l'import d'un export v3 migre aussi ; un export v4 reste intact", () => {
+    const data = { prices: { Orukam: { optimakina: { v: 1000, t: 5 } } } };
+    const r3 = parseExport(JSON.stringify({ app: "dd-elevage", schemaVersion: 3, data }));
+    expect(r3.ok && r3.data.prices.Orukam?.opti10?.v).toBe(1000);
+    const v4 = { prices: { Orukam: { opti3: { v: 1, t: 5 } } } };
+    const r4 = parseExport(JSON.stringify({ app: "dd-elevage", schemaVersion: 4, data: v4 }));
+    expect(r4.ok && Object.keys(r4.data.prices.Orukam ?? {})).toEqual(["opti3"]);
+  });
+
+  it("export puis réimport : mêmes données", () => {
+    useStore.setState(defaultAppData());
+    st().importJSON(JSON.stringify({ app: "dd-elevage", schemaVersion: 3, data: { prices: { Orukam: { optimakina: { v: 42000, t: 7 } } } } }));
+    expect(st().prices.Orukam?.opti4?.v).toBe(42000);
+    const before = dataOf(st());
+    const out = st().exportJSON();
+    useStore.setState(defaultAppData());
+    expect(st().importJSON(out).ok).toBe(true);
+    expect(dataOf(st())).toEqual(before);
+  });
+
+  it("hydratation d'un localStorage v3 (clé v3) : prix unique recopié", async () => {
+    mem.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ version: 3, state: { prices: { Orukam: { optimakina: { v: 90000, t: 3 } } } } }),
+    );
+    await useStore.persist.rehydrate();
+    expect(st().prices.Orukam?.opti2?.v).toBe(90000);
+    expect(st().prices.Orukam?.opti10?.v).toBe(90000);
+    expect(st().futureVersion).toBe(false);
+  });
+
+  it("une clé `optimakina` n'est plus une clé de prix ; paste par génération", () => {
+    expect(st().setPrice("Orukam", "optimakina", 5)).toBe(false);
+    expect(parsePaste("optimakina 5 300k").entries).toEqual([["opti5", 300000]]);
+    expect(parsePaste("optimakina 150k").entries.length).toBe(9);
+  });
+});
+
 describe("import par collage", () => {
   it("parsePaste : lignes valides et invalides", () => {
     const r = parsePaste(
@@ -373,7 +444,7 @@ describe("import par collage", () => {
       ["g9", 2400000],
       ["neurone", 25000],
       ["genetons", 3000],
-      ["optimakina", 150000],
+      ...[2, 3, 4, 5, 6, 7, 8, 9, 10].map((g) => [`opti${g}`, 150000]),
     ]);
     expect(r.bad).toEqual(["gen 11 5k", "blabla", "7 abc", "4 0"]);
   });
@@ -416,7 +487,7 @@ describe("mode démo isolé (cas de #5)", () => {
     expect(d().prices.Imagiro?.g5?.v).toBe(999000); // l'action a bien agi... sur la démo
 
     expect(snapshot()).toBe(before);
-    expect(st().prices.Imagiro).toEqual(fixture.data.prices.Imagiro);
+    expect(st().prices.Imagiro).toEqual(fixPrices.Imagiro);
     expect(st().calc.target).toBe(6);
   });
 
