@@ -1,9 +1,17 @@
 /* =====================================================================
-   DONNÉES — élevage Dofus 3.5 (refonte du 3 mars 2026)
-   Source : guides Next Stage, Dofus pour les Pros / Noobs, Guidactik, DAFOUS.
+   DONNÉES — élevage DOFUS Unity 3.7 (mise à jour du 6 octobre 2026)
+   Dernier correctif officiel vu : 3.7.13.17 (2 novembre 2026). Aucune 3.8 trouvée au 20/11/2026.
+   Sources des constantes (recoupées) : notes de la 3.7 relayées par Dofus pour les Noobs
+   (« Mise à jour 3.7 » + Guide de l'éleveur MàJ 13/10/2026), Duffus, Sigilos (guide MàJ 29/10/2026),
+   JeuxEnd (patch notes 3.7). Notes officielles dofus.com (forum) non lisibles en automatique (403).
    Les valeurs en kamas ne sont PAS dans ce fichier : aucun prix fiable
    n'existe publiquement, tu les saisis toi-même dans l'onglet Rentabilité.
    ===================================================================== */
+
+/* Constantes uniques — à modifier ICI à chaque nouvelle version du jeu. */
+const VERSION_JEU = "3.7";            // DOFUS Unity 3.7, sortie 6 octobre 2026 (3.5 : 3 mars 2026)
+const CAPACITE_JAUGE = 200000;        // 3.5 : 100 000 ; 3.7 : doublée (Noobs, Duffus, Sigilos, JeuxEnd)
+const VITESSE_MULT = 1;               // vitesse des tiers : 1 en 3.5 ET en 3.7 (10/20/30/40 pts par 10 s inchangés ; Noobs + Duffus)
 
 const SERVEURS = [
   { id: "Draconiros", type: "Monocompte (abonnement requis)", note: "Seul serveur monocompte. Prix plus fluctuants, ressources très disputées (galets, pépites, roses des sables). Moins de comptes = moins d'offre de montures, mais aussi moins de concurrence sur la vente." },
@@ -32,19 +40,21 @@ const GENERATIONS = [
 /* Génétons gagnés par parent selon sa génération */
 const GENETONS = { 1: 1, 2: 2, 3: 4, 4: 8, 5: 15, 6: 30, 7: 60, 8: 120, 9: 250, 10: 0 };
 
-/* Jauge d'enclos : tiers et durée de vidage (capacité 100 000) */
+/* Jauge d'enclos : tiers et durée de vidage (capacité CAPACITE_JAUGE ; seuils 3.7 doublés par rapport à la 3.5).
+   Durées = taille du tier / vitesse (Noobs : 22 h 13, 8 h 19, 3 h 42, 1 h 23 ; total ≈ 35 h 37). */
 const TIERS = [
-  { tier: 1, plage: "0 – 40 000", min: 0, max: 40000, duree: "11 h 06", xpS: 1 },
-  { tier: 2, plage: "40 001 – 70 000", min: 40001, max: 70000, duree: "4 h 09", xpS: 2 },
-  { tier: 3, plage: "70 001 – 90 000", min: 70001, max: 90000, duree: "1 h 51", xpS: 3 },
-  { tier: 4, plage: "90 001 – 100 000", min: 90001, max: 100000, duree: "42 min", xpS: 4 }
+  { tier: 1, plage: "0 – 80 000", min: 0, max: 80000, duree: "22 h 13", xpS: 1 * VITESSE_MULT },
+  { tier: 2, plage: "80 001 – 140 000", min: 80001, max: 140000, duree: "8 h 19", xpS: 2 * VITESSE_MULT },
+  { tier: 3, plage: "140 001 – 180 000", min: 140001, max: 180000, duree: "3 h 42", xpS: 3 * VITESSE_MULT },
+  { tier: 4, plage: "180 001 – 200 000", min: 180001, max: CAPACITE_JAUGE, duree: "1 h 23", xpS: 4 * VITESSE_MULT }
 ];
 
+/* Niveau de métier et prix en poussière inchangés depuis la 3.5 ; durabilité des carburants doublée en 3.7 (Minuscule 2 000 … Gigantesque 10 000). */
 const CARBURANTS = [
-  { nom: "Extrait", tierMax: "1 (40 000)", metier: 5, poussiere: 50 },
-  { nom: "Philtre", tierMax: "2 (70 000)", metier: 55, poussiere: 200 },
-  { nom: "Potion", tierMax: "3 (90 000)", metier: 105, poussiere: 800 },
-  { nom: "Élixir", tierMax: "4 (100 000)", metier: 155, poussiere: 3200 }
+  { nom: "Extrait", tierMax: "1 (80 000)", metier: 5, poussiere: 50 },
+  { nom: "Philtre", tierMax: "2 (140 000)", metier: 55, poussiere: 200 },
+  { nom: "Potion", tierMax: "3 (180 000)", metier: 105, poussiere: 800 },
+  { nom: "Élixir", tierMax: "4 (200 000)", metier: 155, poussiere: 3200 }
 ];
 
 const JAUGES = [
@@ -69,9 +79,9 @@ const FILETS = [
 ];
 
 const MAKINAS = [
-  { nom: "Animakina", effet: "Donne une capacité aléatoire au bébé : Amoureuse 27 %, Endurante 27 %, Précoce 27 %, Sage 14 %, Reproducteur 5 %." },
+  { nom: "Animakina", effet: "Choisit le sexe du bébé (3.7 ; en 3.5 : capacité aléatoire). Sans Makina, capacité aléatoire à la naissance : Amoureuse 8 %, Endurante 8 %, Sage 6 %, Reproductrice 3 % (Précoce supprimée)." },
   { nom: "Kromakina", effet: "Donne la capacité Caméléone à 100 %." },
-  { nom: "Optimakina", effet: "Augmente les chances d'obtenir la génération cible (+10 %, une source dit +20 %). Avec deux parents niveau 200 : 100 %." }
+  { nom: "Optimakina", effet: "Augmente de +20 % les chances d'obtenir la génération cible (3.7 ; +10 % en 3.5). Chaque Makina existe par type de monture et par génération : une génération supérieure à la cible convient, pas une inférieure." }
 ];
 
 const ALMANAX = [
@@ -85,17 +95,22 @@ const ALMANAX = [
   "Août (Rigamix) : 25 % de chances d'un second objet sur les crafts",
   "Septembre (Mau) : Caresseurs doublés",
   "Octobre (Benjo) : capacité Sage aux naissances — et Takeza (date variable) : +20 % sur la génération cible",
-  "Novembre (Otoul) : capacité Précoce aux naissances",
+  "Novembre (Otoul) : +20 % sur la génération cible (1 source ; la capacité Précoce a été supprimée en 3.7)",
   "Décembre (Foya) : Dragofesses doublées"
 ];
 
 const SOURCES = [
-  ["Next Stage — Tuto élevage de dragodinde A à Z (avril 2026)", "https://www.next-stage.fr/2026/04/tuto-elevage-dragodinde-dofus-guide-complet-a-z.html"],
-  ["Dofus pour les Pros — Guide de l'éleveur (édition 2026)", "https://dofuspourlespros.com/guide-de-l-eleveur.html"],
-  ["Dofus pour les Noobs — Guide de l'éleveur / màj 3.5", "https://www.dofuspourlesnoobs.com/guide-de-l-eleveur.html"],
+  ["Dofus pour les Noobs — Présentation de la màj 3.7 (6 octobre 2026)", "https://www.dofuspourlesnoobs.com/mise-a-jour-307.html"],
+  ["Sigilos — Élevage de montures Dofus 3.7 : le guide (MàJ 29/10/2026)", "https://beta.sigilos.fr/guides/guide-elevage-enclos-guilde-dofus"],
+  ["JeuxEnd — Patch notes DOFUS 3.7", "https://www.jeuxend.com/blog/dofus-3-7-patch-notes-changements"],
+  ["JeuxEnd — Élevage DOFUS 3.7 : étable 500 montures, génétons, Makinas", "https://www.jeuxend.com/blog/dofus-3-7-elevage-montures-makinas-genetons"],
+  ["Duffus — Guide élevage", "https://duffus.fr/tutoriels/guide-elevage"],
+  ["Next Stage — Tuto élevage de dragodinde A à Z (avril 2026 ; chiffres 3.5, dépassés)", "https://www.next-stage.fr/2026/04/tuto-elevage-dragodinde-dofus-guide-complet-a-z.html"],
+  ["Dofus pour les Pros — Guide de l'éleveur (édition 2026 ; jauge 100 000 = 3.5)", "https://dofuspourlespros.com/guide-de-l-eleveur.html"],
+  ["Dofus pour les Noobs — Guide de l'éleveur (MàJ 13/10/2026, couvre la 3.7)", "https://www.dofuspourlesnoobs.com/guide-de-l-eleveur.html"],
   ["Guidactik — Guide complet de l'élevage sur DOFUS 3", "https://guidactik.com/dofus/guide-complet-de-lelevage-sur-dofus-3/"],
   ["Guidactik — Extraction et généalogie des dragodindes", "https://guidactik.com/dofus/guide-elevage-sur-dofus-extraction-et-genealogie-de-dragodindes/"],
   ["Gamewave — Dofus 3.5 est là", "https://gamewave.fr/dofus/dofus-3-5-est-la-elevage-refondu-songes-boostes-et-plein-d-ameliorations-en-jeu/"],
   ["Next Stage — Quel serveur choisir sur DOFUS 3 ?", "https://www.next-stage.fr/2026/05/dofus-3-unity-quel-serveur-choisir.html"],
-  ["DAFOUS — Guide Dragodindes Unity 3.5 (témoignage de marge)", "https://dafous.app/guides/dragodindes.html"]
+  ["DAFOUS — Guide Dragodindes Unity 3.5 (témoignage de marge, 3.5)", "https://dafous.app/guides/dragodindes.html"]
 ];

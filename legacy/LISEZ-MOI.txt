@@ -1,4 +1,4 @@
-ÉLEVAGE DRAGODINDES - Dofus 3.5 (outil interne local) - v2
+ÉLEVAGE DRAGODINDES - Dofus 3.7 (outil interne local) - v2
 
 Lancer : double-clique sur index.html (aucune installation, aucun serveur).
 Vérifier le calcul : ouvre tests.html (ou `node tests.js`).

@@ -60,7 +60,7 @@ $("#tblFilets").innerHTML = FILETS.map((f) => `<tr><td><b>${f.nom}</b></td><td>$
 $("#tblEnclos").innerHTML = ENCLOS_METIER.map((e, i) => `<tr><td>${e.niveau}</td><td>${e.label} → ${i + 1} enclos au total (${(i + 1) * 10} places)</td></tr>`).join("");
 $("#tblJauges").innerHTML = JAUGES.map((j) => `<tr><td><b>${j.nom}</b></td><td>${j.effet}</td></tr>`).join("");
 $("#tblTiers").innerHTML = TIERS.map((t) => {
-  const w = ((t.max - Math.max(0, t.min - 1)) / 1000).toFixed(0);   // largeur de la barre ∝ taille du tier
+  const w = ((t.max - Math.max(0, t.min - 1)) / CAPACITE_JAUGE * 100).toFixed(0);   // largeur de la barre ∝ taille du tier
   return `<tr><td>${t.tier}</td><td>${t.plage}<div class="bar"><i style="width:${w}%"></i></div></td><td>${t.duree}</td><td>${t.xpS}</td></tr>`;
 }).join("");
 $("#tblCarb").innerHTML = CARBURANTS.map((c) => `<tr><td><b>${c.nom}</b></td><td>${c.tierMax}</td><td>${c.metier}</td><td>${fmt(c.poussiere)}</td></tr>`).join("");
