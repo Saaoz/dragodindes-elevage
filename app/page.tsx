@@ -1,3 +1,4 @@
+import { InstallApp } from "@/components/install-app";
 import { ThemeToggle } from "@/components/theme-toggle";
 
 export default function Home() {
@@ -16,6 +17,7 @@ export default function Home() {
           Ouvrir la v2 (copie servie par cette application)
         </a>
       </p>
+      <InstallApp />
       <div>
         <ThemeToggle />
       </div>
