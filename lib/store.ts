@@ -19,7 +19,7 @@ import {
    Clé v3 propre. Les clés v2/v1 sont LUES (jamais modifiées) pour migrer automatiquement les
    données de la v2 si elle a tourné sur la même origine (/legacy est servi par l'appli). */
 export const STORAGE_KEY = "dd-elevage-v3";
-export const STORAGE_VERSION = 3;
+export const STORAGE_VERSION = 4; // 4 : Optimakina par génération (opti2..opti10)
 export const LEGACY_V2_KEY = "dd-elevage-v2";
 export const LEGACY_V1_KEY = "dd-elevage-v1";
 
@@ -59,9 +59,33 @@ export function migrateV1(old: unknown, now = Date.now(), strict = false): Recor
   return { server: old.server, matB: old.matB, calc: old.calc, prices };
 }
 
+/* ---------- migration v2/v3 → v4 : prix unique `optimakina` → opti2 … opti10 ----------
+   Le prix (et sa date) est recopié vers chaque génération non renseignée : aucune perte, et un prix
+   déjà saisi par génération n'est jamais écrasé. Idempotent ; la clé `optimakina` disparaît ensuite.
+   Ne modifie pas son argument ; tolère toute forme (renvoie la donnée telle quelle si inexploitable). */
+export const OPTI_GENS = [2, 3, 4, 5, 6, 7, 8, 9, 10] as const;
+
+export function migrateOptimakina<T>(data: T): T {
+  if (!isObj(data) || !isObj(data.prices)) return data;
+  const prices: Record<string, unknown> = {};
+  for (const [id, sp] of Object.entries(data.prices)) {
+    if (!isObj(sp) || !("optimakina" in sp)) {
+      prices[id] = sp;
+      continue;
+    }
+    const { optimakina, ...rest } = sp;
+    const entry = isObj(optimakina) ? optimakina : null;
+    if (entry && typeof entry.v === "number" && entry.v > 0) {
+      for (const g of OPTI_GENS) if (!(`opti${g}` in rest)) rest[`opti${g}`] = { ...entry };
+    }
+    prices[id] = rest;
+  }
+  return { ...data, prices } as T;
+}
+
 /* ---------- nettoyage TOLÉRANT (données persistées localement) : repli champ par champ ---------- */
 export function sanitize(raw: unknown): AppData {
-  const o = isObj(raw) ? raw : {};
+  const o = migrateOptimakina(isObj(raw) ? raw : {});
   const full = appDataSchema.safeParse(o);
   if (full.success) return full.data;
 
@@ -130,6 +154,7 @@ export function parseExport(text: string): ParsedImport {
       return { ok: false, msg: (e as Error).message };
     }
   }
+  if (version < 4) data = migrateOptimakina(data);
   const r = appDataSchema.safeParse(data);
   if (!r.success) {
     const i = r.error.issues[0];
@@ -143,10 +168,10 @@ export const entryOf = (prices: PricesState, server: ServerId, key: PriceKey) =>
 
 /* Prix numériques pour calc.ts */
 export function priceValues(prices: PricesState, server: ServerId): Prices {
-  const P: Prices = { gen: Array(11).fill(0), neurone: 0, optimakina: 0, genetons: 0 };
+  const P: Prices = { gen: Array(11).fill(0), neurone: 0, opti: Array(11).fill(0), genetons: 0 };
   for (let g = 1; g <= 10; g++) P.gen[g] = entryOf(prices, server, `g${g}` as PriceKey)?.v ?? 0;
+  for (const g of OPTI_GENS) P.opti[g] = entryOf(prices, server, `opti${g}` as PriceKey)?.v ?? 0;
   P.neurone = entryOf(prices, server, "neurone")?.v ?? 0;
-  P.optimakina = entryOf(prices, server, "optimakina")?.v ?? 0;
   P.genetons = entryOf(prices, server, "genetons")?.v ?? 0;
   return P;
 }
@@ -165,7 +190,7 @@ export function oldestAge(prices: PricesState, server: ServerId, now = Date.now(
 }
 
 /* ---------- import par collage : « gen 5  300k », « neurone 25k »… ---------- */
-const PASTE_RE = /^(?:gen\.?|g|génération)?\s*(\d{1,2}|neurones?|optimakina|g[ée]n[ée]tons?)\s*[:;\t =-]+\s*(.+)$/i;
+const PASTE_RE = /^(?:gen\.?|g|génération)?\s*(\d{1,2}|neurones?|optimakina(?:\s+(?:10|[2-9])\b)?|g[ée]n[ée]tons?)\s*[:;\t =-]+\s*(.+)$/i;
 
 export function parsePaste(text: string): { entries: [PriceKey, number][]; bad: string[] } {
   const entries: [PriceKey, number][] = [];
@@ -175,17 +200,22 @@ export function parsePaste(text: string): { entries: [PriceKey, number][]; bad: 
     if (!l) return;
     const m = l.match(PASTE_RE);
     if (!m) return void bad.push(l);
-    let key = m[1].toLowerCase();
-    if (/^\d+$/.test(key)) {
+    let key = m[1].toLowerCase().replace(/\s+/g, " ");
+    /* « optimakina 5 300k » : génération 5 ; « optimakina 150k » : toutes les générations (comme la migration). */
+    const optiGen = key.match(/^optimakina (\d+)$/)?.[1];
+    const allOpti = key === "optimakina";
+    if (optiGen) key = "opti" + optiGen;
+    else if (allOpti) key = "opti*";
+    else if (/^\d+$/.test(key)) {
       if (+key < 1 || +key > 10) return void bad.push(l);
       key = "g" + +key;
     } else if (key.startsWith("neuron")) key = "neurone";
-    else if (key.startsWith("optim")) key = "optimakina";
     else key = "genetons";
     /* « 5 -300k » : montant négatif refusé (le tiret n'est pas un séparateur ici). */
     const v = /[\s:;=]-\d/.test(l) ? null : parseKamas(m[2]);
     if (!v) return void bad.push(l);
-    entries.push([key as PriceKey, v]);
+    if (allOpti) for (const g of OPTI_GENS) entries.push([`opti${g}` as PriceKey, v]);
+    else entries.push([key as PriceKey, v]);
   });
   return { entries, bad };
 }
@@ -376,7 +406,8 @@ export const useStore = create<AppStore>()(
     partialize: (s) => pickData(s as AppData),
     migrate: (persisted, version) => {
       if (version > STORAGE_VERSION) throw new Error("Données créées par une version plus récente de l'outil.");
-      return (version === 1 ? migrateV1(persisted) : persisted) as AppStore;
+      const v4 = version === 1 ? migrateV1(persisted) : persisted;
+      return (version < 4 ? migrateOptimakina(v4) : v4) as AppStore;
     },
     /* Toujours nettoyer ce qui vient du disque, même à version égale. */
     merge: (persisted, current) => ({ ...current, ...sanitize(persisted) }),
@@ -390,7 +421,9 @@ export const useStore = create<AppStore>()(
 /* ---------- mode démo : magasin séparé, en mémoire, jamais persisté ---------- */
 export const DEMO_VALUES: Record<PriceKey, number> = {
   g1: 20000, g2: 40000, g3: 90000, g4: 160000, g5: 300000, g6: 520000, g7: 800000, g8: 1300000,
-  g9: 2400000, g10: 4000000, neurone: 25000, optimakina: 150000, genetons: 3000,
+  g9: 2400000, g10: 4000000, neurone: 25000, genetons: 3000,
+  opti2: 150000, opti3: 150000, opti4: 150000, opti5: 150000, opti6: 150000, opti7: 150000, opti8: 150000,
+  opti9: 150000, opti10: 150000,
 };
 
 export function demoData(now = Date.now()): AppData {

@@ -52,7 +52,8 @@ export const DEFAULT_CALC: CalcSettings = {
 export interface Prices {
   gen: number[];
   neurone: number;
-  optimakina: number;
+  /* opti[g] = prix de l'Optimakina de génération g (index 0 et 1 inutilisés) */
+  opti: number[];
   genetons: number;
 }
 
@@ -127,6 +128,21 @@ export function chanceCible(
   return Math.min(1, Math.max(0, p));
 }
 
+/* ---------- prix de l'Optimakina adaptée à une génération cible ----------
+   Une Makina de génération >= cible convient (Dofus pour les Noobs) : on prend celle de la cible
+   si elle est renseignée, sinon la moins chère parmi les générations supérieures renseignées.
+   Renvoie 0 si aucune n'est renseignée. */
+export function optimakinaPrice(P: Prices, target: number): number {
+  const exact = pos(P.opti[target]);
+  if (exact > 0) return exact;
+  let best = 0;
+  for (let g = target + 1; g <= 10; g++) {
+    const v = pos(P.opti[g]);
+    if (v > 0 && (best === 0 || v < best)) best = v;
+  }
+  return best;
+}
+
 /* ---------- compute : un couple, un accouplement ----------
    c = réglages du simulateur, P = prix numériques.
    Un prix manquant (absent ou 0) est listé dans `missing` : le résultat est alors INCOMPLET. */
@@ -152,7 +168,7 @@ export function compute(c: CalcSettings, P: Prices): ComputeResult {
     costParents =
       need("Monture gén. " + genA + " (parent A)", P.gen[genA]) + need("Monture gén. " + genB + " (parent B)", P.gen[genB]);
   }
-  const costOpti = c.opti ? need("Optimakina", P.optimakina) : 0;
+  const costOpti = c.opti ? need("Optimakina gén. " + target, optimakinaPrice(P, target)) : 0;
   const fuel = pos(c.fuel);
   const cost = costParents + fuel + costOpti;
 

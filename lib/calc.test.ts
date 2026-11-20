@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { chanceCible, compute, DEFAULT_CALC, parseKamas, scenario, type CalcSettings, type Prices } from "./calc";
+import { chanceCible, compute, optimakinaPrice, DEFAULT_CALC, parseKamas, scenario, type CalcSettings, type Prices } from "./calc";
 
 /* Portage de legacy/tests.js : mêmes 21 tests, mêmes valeurs attendues. */
 
@@ -8,7 +8,7 @@ const near = (got: number, want: number) => expect(Math.abs(got - want)).toBeLes
 const P: Prices = {
   gen: [0, 20000, 40000, 90000, 160000, 300000, 520000, 800000, 1300000, 2400000, 4000000],
   neurone: 25000,
-  optimakina: 150000,
+  opti: [0, 0, ...Array(9).fill(150000)],
   genetons: 3000,
 };
 
@@ -80,7 +80,7 @@ describe("compute", () => {
   });
 
   // prix manquants signalés, pas silencieusement mis à 0
-  const rm = compute(base, { gen: Array(11).fill(0), neurone: 0, optimakina: 0, genetons: 0 });
+  const rm = compute(base, { gen: Array(11).fill(0), neurone: 0, opti: Array(11).fill(0), genetons: 0 });
   it("incomplet si aucun prix", () => expect(rm.incomplete).toBe(true));
   it("liste des manquants non vide", () => expect(rm.missing.length > 0).toBe(true));
 
@@ -90,4 +90,44 @@ describe("compute", () => {
 
   const s = scenario(base, 7, "gen1");
   it("scénario gen1", () => expect([s.target, s.genA, s.genB]).toEqual([7, 6, 1]));
+});
+
+describe("Optimakina par génération", () => {
+  const withOpti = (opti: Record<number, number>): Prices => {
+    const o = Array(11).fill(0);
+    for (const [g, v] of Object.entries(opti)) o[+g] = v;
+    return { ...P, opti: o };
+  };
+
+  it("utilise le prix de la génération cible quand il existe", () => {
+    const r = compute(base, withOpti({ 5: 100000, 6: 50000, 7: 40000 }));
+    expect(r.costOpti).toBe(100000);
+    expect(r.missing).not.toContain("Optimakina gén. 5");
+  });
+
+  it("repli : la moins chère des générations supérieures renseignées", () => {
+    const r = compute(base, withOpti({ 4: 10000, 7: 300000, 9: 200000, 10: 250000 }));
+    expect(r.costOpti).toBe(200000); // gén. 4 (< cible) ignorée
+    expect(r.incomplete).toBe(false);
+  });
+
+  it("une Makina de génération inférieure à la cible ne convient pas : manquant explicite", () => {
+    const r = compute(base, withOpti({ 2: 10000, 4: 20000 }));
+    expect(r.costOpti).toBe(0);
+    expect(r.missing).toContain("Optimakina gén. 5");
+    expect(r.incomplete).toBe(true);
+  });
+
+  it("sans Optimakina (opti = false) : aucun coût ni manquant d'Optimakina", () => {
+    const r = compute({ ...base, opti: false }, withOpti({}));
+    expect(r.costOpti).toBe(0);
+    expect(r.missing.some((m) => m.startsWith("Optimakina"))).toBe(false);
+  });
+
+  it("scénario : la génération cible du scénario détermine la Makina", () => {
+    const r = compute(scenario(base, 8, "same"), withOpti({ 8: 700000, 9: 1 }));
+    expect(r.costOpti).toBe(700000);
+  });
+
+  it("optimakinaPrice : 0 si rien", () => expect(optimakinaPrice(withOpti({}), 3)).toBe(0));
 });

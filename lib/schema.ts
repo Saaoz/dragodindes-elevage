@@ -10,8 +10,11 @@ import { CAPACITE_JAUGE, SERVEURS } from "./data";
 
 export const SERVER_IDS = SERVEURS.map((s) => s.id);
 export type ServerId = (typeof SERVEURS)[number]["id"];
+/* Optimakina : une Makina par génération CIBLE (opti2 … opti10 ; la cible va de 2 à 10).
+   L'ancien prix unique `optimakina` (v2 et v3) est migré vers toutes ces clés (voir lib/store.ts). */
 export const PRICE_KEYS = [
-  "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8", "g9", "g10", "neurone", "optimakina", "genetons",
+  "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8", "g9", "g10", "neurone",
+  "opti2", "opti3", "opti4", "opti5", "opti6", "opti7", "opti8", "opti9", "opti10", "genetons",
 ] as const;
 export type PriceKey = (typeof PRICE_KEYS)[number];
 
@@ -105,7 +108,7 @@ export const defaultAppData = (): AppData => appDataSchema.parse({});
 
 /* ---------- enveloppe d'export JSON ---------- */
 export const APP_ID = "dd-elevage";
-export const EXPORT_SCHEMA_VERSION = 3;
+export const EXPORT_SCHEMA_VERSION = 4; // 4 : Optimakina par génération (opti2..opti10) au lieu d'un prix unique
 
 /* ---------- compatibilité avec CalcSettings (lib/calc.ts), vérifiée à la compilation ----------
    Le schéma produit un CalcSettings valide (optiBonus 10|20 est plus étroit que number : sens unique)

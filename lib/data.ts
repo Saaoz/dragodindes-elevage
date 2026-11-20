@@ -89,7 +89,7 @@ export const FILETS = [
 export const MAKINAS = [
   { nom: "Animakina", effet: "Choisit le sexe du bébé (3.7 ; en 3.5 : capacité aléatoire). Sans Makina, capacité aléatoire à la naissance : Amoureuse 8 %, Endurante 8 %, Sage 6 %, Reproductrice 3 % (Précoce supprimée)." },
   { nom: "Kromakina", effet: "Donne la capacité Caméléone à 100 %." },
-  { nom: "Optimakina", effet: "Augmente de +20 % les chances d'obtenir la génération cible (3.7 ; +10 % en 3.5). Chaque Makina existe par type de monture et par génération : une génération supérieure à la cible convient, pas une inférieure." },
+  { nom: "Optimakina", effet: "Augmente de +20 % les chances d'obtenir la génération cible (3.7 ; +10 % en 3.5). Chaque Makina existe par type de monture et par génération : une Makina de génération supérieure ou égale à la cible convient, pas une inférieure (Noobs : « au minimum une makina de génération 6 » pour une cible 6). Le simulateur prend le prix de la génération cible, sinon la moins chère des générations supérieures renseignées (sources : Dofus pour les Noobs, guide de l'éleveur MàJ 13/10/2026 ; Guidactik confirme l'Optimakina sans détailler les générations ; JeuxEnd 3.7 : « Les Makinas sont ajustées avec la 3.7 », sans détail)." },
 ] as const;
 
 export const ALMANAX = [
