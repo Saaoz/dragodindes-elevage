@@ -193,6 +193,12 @@ export function parsePaste(text: string): { entries: [PriceKey, number][]; bad: 
 /* ---------- le magasin ---------- */
 export interface Actions {
   readonly demo: boolean;
+  /* Vrai si le localStorage contient un état d'une version PLUS RÉCENTE que celle de l'appli
+     (ex. service worker qui sert encore une ancienne version). Dans ce cas, rien n'est écrit :
+     les données récentes sont préservées, la session reste en lecture seule. L'UI doit alors
+     afficher « Une version plus récente de l'appli a été utilisée sur cet appareil : recharge la page ».
+     Fixé à chaque hydratation ; toujours faux en démo. */
+  readonly futureVersion: boolean;
   setServer: (id: string) => boolean;
   setTheme: (t: AppData["theme"]) => boolean;
   setMatB: (m: AppData["matB"]) => boolean;
@@ -220,6 +226,7 @@ function makeCreator(demo: boolean, initial: () => AppData): StateCreator<AppSto
   return (set, get) => ({
     ...initial(),
     demo,
+    futureVersion: false,
     setServer: (id) => {
       if (!isServer(id)) return false;
       set({ server: id });
@@ -305,6 +312,22 @@ function makeCreator(demo: boolean, initial: () => AppData): StateCreator<AppSto
 export const persistStatus: { lastError: unknown } = { lastError: null };
 const ls = (): Storage | undefined => (typeof localStorage === "undefined" ? undefined : localStorage);
 
+/* Version écrite dans la clé v3 du localStorage, lue sans rien modifier ; null si absente ou illisible. */
+const storedVersion = (s: Storage | undefined, name: string): number | null => {
+  try {
+    const raw = s?.getItem(name);
+    if (!raw) return null;
+    const v = (JSON.parse(raw) as { version?: unknown }).version;
+    return typeof v === "number" ? v : null;
+  } catch {
+    return null;
+  }
+};
+
+/* Vrai si le localStorage contient une version future. Relu à chaque écriture : aucune écriture
+   ne peut donc écraser des données plus récentes, même avant la fin de l'hydratation. */
+const isFutureStored = (): boolean => (storedVersion(ls(), STORAGE_KEY) ?? 0) > STORAGE_VERSION;
+
 const storage: PersistStorage<AppData> = {
   getItem: (name) => {
     const s = ls();
@@ -324,7 +347,10 @@ const storage: PersistStorage<AppData> = {
   /* Ne lève jamais : persistStatus.lastError dit si la sauvegarde a échoué (quota, mode privé…). */
   setItem: (name, value) => {
     try {
-      ls()?.setItem(name, JSON.stringify(value));
+      const s = ls();
+      /* Version future sur le disque : lecture seule, on ne touche à rien (voir `futureVersion`). */
+      if ((storedVersion(s, name) ?? 0) > STORAGE_VERSION) return;
+      s?.setItem(name, JSON.stringify(value));
       persistStatus.lastError = null;
     } catch (e) {
       persistStatus.lastError = e;
@@ -354,6 +380,10 @@ export const useStore = create<AppStore>()(
     },
     /* Toujours nettoyer ce qui vient du disque, même à version égale. */
     merge: (persisted, current) => ({ ...current, ...sanitize(persisted) }),
+    /* Après chaque hydratation (réussie ou non), fixe le drapeau lu par l'UI. */
+    onRehydrateStorage: () => () => {
+      useStore.setState({ futureVersion: isFutureStored() });
+    },
   }),
 );
 
