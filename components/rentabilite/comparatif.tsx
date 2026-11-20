@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { magasinActif, useApp } from "@/components/app-state";
 import { Choix } from "@/components/commun/choix";
 import { fmt, fmtShort, type CalcSettings } from "@/lib/calc";
@@ -16,7 +17,9 @@ function Heatmap() {
   const m = matrice(prices, calc, matB);
 
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    /* `relative` : les textes sr-only des cases (position: absolute) se rattachent à ce conteneur et non à la page,
+       sinon ceux des colonnes de droite élargissent tout le document (le navigateur mobile dézoome). */
+    <div className="relative overflow-x-auto rounded-lg border">
       <table className="w-full min-w-[40rem] border-collapse text-sm">
         <caption className="sr-only">Profit espéré par couple, par serveur et génération cible</caption>
         <thead>
@@ -79,6 +82,18 @@ function Graphique() {
   const calc = useApp((s) => s.calc) as CalcSettings;
   const matB = useApp((s) => s.matB);
   const server = useApp((s) => s.server);
+  const conteneur = useRef<HTMLElement>(null);
+  const [largeur, setLargeur] = useState(640);
+  /* Sans dépendances : le <figure> n'existe qu'une fois des prix saisis, on se rattache dès qu'il apparaît. */
+  useEffect(() => {
+    const el = conteneur.current;
+    if (!el) return;
+    const mesurer = () => setLargeur(Math.round(el.getBoundingClientRect().width) || 640);
+    mesurer();
+    const o = new ResizeObserver(mesurer);
+    o.observe(el);
+    return () => o.disconnect();
+  });
   const serie = serieGraphique(prices, server, calc, matB);
   const ok = serie.filter((s) => !s.r.incomplete);
   if (!ok.length)
@@ -87,35 +102,55 @@ function Graphique() {
         Renseigne les prix des générations de {server} pour voir le graphique.
       </p>
     );
-  const W = 640,
-    H = 240,
+  /* Le viewBox suit la largeur réelle : 1 unité = 1 px CSS, donc les textes restent à 12 px quel que soit l'écran. */
+  const W = Math.max(280, largeur),
+    H = 260,
     pl = 56,
-    pb = 28,
-    pt = 14;
+    pb = 30,
+    pt = 22,
+    taille = 12,
+    ecart = 14;
   const vals = ok.flatMap((s) => [s.r.profitFail, s.r.profitSuccess, 0]);
   const lo = Math.min(...vals),
     hi = Math.max(...vals),
     span = hi - lo || 1;
   const y = (v: number) => pt + (H - pt - pb) * (1 - (v - lo) / span);
   const bw = (W - pl - 10) / GENS_CIBLES.length;
+  /* Repères min / 0 / max : le zéro reste sur sa ligne ; le max remonte et le min descend si leur texte chevaucherait le zéro. */
+  const y0 = y(0);
+  const reperes = [
+    { cle: "max", v: hi, ty: Math.min(y(hi), y0 - ecart), garde: hi !== 0 },
+    { cle: "zero", v: 0, ty: y0, garde: true },
+    { cle: "min", v: lo, ty: Math.max(y(lo), y0 + ecart), garde: lo !== 0 },
+  ].filter((r) => r.garde);
   return (
-    <figure className="flex flex-col gap-2">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`Profit espéré par génération cible sur ${server}`} className="w-full text-foreground">
-        <line x1={pl} x2={W - 6} y1={y(0)} y2={y(0)} stroke="currentColor" opacity={0.35} />
-        {[lo, hi].map((v, i) => (
-          <text key={i} x={pl - 6} y={y(v) + 4} textAnchor="end" fontSize="11" fill="currentColor" opacity={0.75}>
-            {fmtShort(v)}
-          </text>
+    <figure ref={conteneur} className="flex min-w-0 flex-col gap-2">
+      <svg viewBox={`0 0 ${W} ${H}`} height={H} role="img" aria-label={`Profit espéré par génération cible sur ${server}`} className="block w-full text-foreground">
+        {reperes.map((r) => (
+          <g key={r.cle}>
+            <line
+              x1={pl}
+              x2={W - 6}
+              y1={y(r.v)}
+              y2={y(r.v)}
+              stroke="currentColor"
+              opacity={r.cle === "zero" ? 0.5 : 0.15}
+              strokeDasharray={r.cle === "zero" ? undefined : "3 3"}
+            />
+            <text x={pl - 6} y={r.ty + 4} textAnchor="end" fontSize={taille} fill="currentColor" opacity={0.85}>
+              {r.cle === "zero" ? "0" : fmtShort(r.v)}
+            </text>
+          </g>
         ))}
         {serie.map(({ g, r }, i) => {
           const x = pl + i * bw + bw / 2;
           return (
             <g key={g}>
-              <text x={x} y={H - 8} textAnchor="middle" fontSize="11" fill="currentColor" opacity={0.75}>
+              <text x={x} y={H - 8} textAnchor="middle" fontSize={taille} fill="currentColor" opacity={0.75}>
                 {g}
               </text>
               {r.incomplete ? (
-                <text x={x} y={y(0) - 6} textAnchor="middle" fontSize="11" fill="currentColor" opacity={0.45}>
+                <text x={x} y={y0 - 6} textAnchor="middle" fontSize={taille} fill="currentColor" opacity={0.45}>
                   —
                 </text>
               ) : (
