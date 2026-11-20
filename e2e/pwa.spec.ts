@@ -35,10 +35,12 @@ test("le service worker s'enregistre et la page recharge hors ligne", async ({ p
 
   await context.setOffline(true);
   await page.reload();
-  await expect(page.getByRole("heading", { name: "Élevage de dragodindes" })).toBeVisible();
-  await expect(page.getByText("Migration en cours")).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Élevage de dragodindes", level: 1 })).toBeVisible();
   // Les styles (assets hashés) sont bien servis depuis le cache.
   await expect(page.locator("main")).toHaveCSS("display", "flex");
+  // Les autres sections sont aussi pré-cachées à l'installation.
+  await page.goto("/guide");
+  await expect(page.getByRole("heading", { name: "Guide", level: 1 })).toBeVisible();
   await context.setOffline(false);
 });
 

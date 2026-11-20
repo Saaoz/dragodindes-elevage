@@ -1,4 +1,4 @@
-# Élevage de dragodindes (Dofus 3.5)
+# Élevage de dragodindes (DOFUS 3.7)
 
 Outil de calcul pour l'élevage de dragodindes : chances de génération cible, rentabilité
 (prix HDV saisis à la main), suivi des enclos avec heure de retour (agenda et notifications push).
@@ -6,17 +6,27 @@ Outil de calcul pour l'élevage de dragodindes : chances de génération cible, 
 > **Outil de fan non officiel. DOFUS est une marque d'Ankama.** Ce projet n'est ni affilié
 > à Ankama ni approuvé par Ankama.
 
-## État du projet : migration en cours
+## L'appli
 
-L'outil migre de la v2 (HTML/CSS/JS sans build) vers **Next.js 16 + React 19 + TypeScript +
-Tailwind 4 + shadcn/ui** (décision : issue #11). La v2 reste utilisable en l'état :
+Next.js 16 + React 19 + TypeScript + Tailwind 4 + shadcn/ui (décision : issue #11), mobile d'abord, thème clair/sombre.
+Navigation : barre en bas sur mobile, en haut sur bureau (refonte #4).
 
-- **sans rien installer** : double-clique sur `legacy/index.html` ;
-- ou via l'application Next.js, qui en sert une copie sur `/legacy/index.html`
-  (copiée de `legacy/` vers `public/legacy/` par `scripts/copy-legacy.mjs`, fichier généré et ignoré par git).
+| Écran | Rôle |
+|---|---|
+| **Accueil** (`/`) | tableau de bord : enclos les plus urgents (heure de retour), bonus Almanax du mois, raccourcis |
+| **Enclos** (`/enclos`) | heure de retour par enclos, objectif enregistré, marge de rappel réglable, rappels agenda (.ics, Google) et push |
+| **Rentabilité** (`/rentabilite`) | onglets *Simuler* (mode simple : génération cible + prix nécessaires → verdict ; mode avancé replié), *Mes prix* (prix HDV datés par serveur, collage, export/import JSON) et *Comparer* (heatmap serveurs × génération, graphique) |
+| **Guide** (`/guide`) | contenu de référence en sections repliables : capture, reproduction, jauges et tiers 3.7, Makinas, croisements avec recherche de couleur, outil XP, Almanax, serveurs, sources et doutes |
 
-Les données de la v2 sont dans le localStorage du navigateur : exporte-les en JSON depuis la v2
-(bouton « Exporter tout (JSON) ») avant de passer à la nouvelle version.
+Le **mode démo** (bouton « Voir une démo » sur Enclos et Rentabilité) utilise un magasin séparé, en mémoire : rien
+n'est écrit dans les vraies données.
+
+### Venir de la v2 (HTML sans build)
+
+La v2 a été retirée du dépôt avec la refonte #4 ; elle reste consultable dans l'historique
+([`legacy/` au commit 34f71ad](https://github.com/Saaoz/dragodindes-elevage/tree/34f71ad/legacy)). Pour reprendre tes prix :
+dans la v2, onglet Rentabilité → « Exporter tout (JSON) », puis dans l'appli, Rentabilité → *Mes prix* → « Importer un
+JSON ». Les données v2 déjà présentes dans le navigateur sur le même site sont reprises automatiquement.
 
 ## Lancer
 
@@ -109,9 +119,8 @@ sur la production (ou désactiver la protection d'un déploiement de test).
 
 ## Structure
 
-- `app/` : pages (App Router) · `components/` : composants (shadcn/ui dans `components/ui`)
+- `app/` : pages (App Router) · `components/` : composants par écran (`accueil/`, `enclos/`, `rentabilite/`, `guide/`, `commun/` ; shadcn/ui dans `components/ui`)
 - `lib/` : logique pure testée par Vitest · `e2e/` : tests Playwright
-- `legacy/` : la v2 d'origine, inchangée
 - `docs/` : documentation du modèle, dont [`docs/serenite.md`](docs/serenite.md) (calcul de la sérénité : quand revenir à l'enclos, hypothèses et points à vérifier en jeu)
 
 ## Licence
