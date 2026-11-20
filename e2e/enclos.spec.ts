@@ -101,7 +101,7 @@ test("mode démo sur les enclos : enclos fictifs, rien n'est écrit", async ({ p
   await expect(page.getByTestId("banniere-demo")).toBeVisible();
   const demo = page.getByRole("region", { name: "Enclos 1 (démo)" });
   await expect(demo.getByText(/Reviens avant/)).toBeVisible();
-  await expect(demo.getByText("Pas de notification en mode démo.")).toBeVisible();
+  await expect(page.getByTestId("aide-notifications").getByText("Pas de notification en mode démo.")).toBeVisible();
   await demo.getByRole("button", { name: "Rester en Maturité" }).click();
   await page.getByRole("button", { name: "30 min" }).click();
   expect(await etatLocal(page)).toBe(avant);
@@ -118,8 +118,11 @@ test("sans variables d'environnement : push désactivé avec explication, agenda
   const bouton = carte.getByRole("button", { name: "Recevoir une notification sur ce téléphone" });
   await expect(bouton).toBeVisible();
   await expect(bouton).toBeDisabled();
-  await expect(carte.getByText(/pas encore configurées sur ce serveur/)).toBeVisible();
-  await expect(carte.getByText(/Utilise plutôt « Ajouter à mon agenda »/)).toBeVisible();
+  /* l'explication est unique, dans le bandeau de la page, et non répétée sur la carte */
+  const aide = page.getByTestId("aide-notifications");
+  await expect(aide.getByText(/pas encore configurées sur ce serveur/)).toBeVisible();
+  await expect(aide.getByText(/Utilise plutôt « Ajouter à mon agenda »/)).toBeVisible();
+  await expect(carte.getByText(/pas encore configurées sur ce serveur/)).toHaveCount(0);
 
   const download = page.waitForEvent("download");
   await carte.getByRole("button", { name: "Ajouter à mon agenda" }).click();
@@ -230,6 +233,51 @@ test("deux onglets : un réglage changé dans A survit à une saisie faite dans 
   await a.reload();
   await expect(marge(a, 30)).toHaveAttribute("aria-pressed", "true");
   await expect(a.getByRole("region", { name: "Enclos 5" }).getByText(/Reviens avant/)).toBeVisible();
+});
+
+async function saisirTous(page: Page) {
+  for (let i = 1; i <= 4; i++) {
+    const carte = page.getByRole("region", { name: `Enclos ${i}` });
+    await carte.getByRole("button", { name: "Saisir cet enclos" }).click();
+    await carte.getByLabel("Sérénité exacte de la monture 1").fill(String(-3000 + i * 500));
+    await carte.getByRole("button", { name: "Sérénité +" }).click();
+    await carte.getByPlaceholder("ex. 200000 ou 85k").fill("200000");
+    await carte.getByRole("button", { name: /Enregistrer/ }).click();
+    await expect(carte.getByText(/Reviens avant/)).toBeVisible();
+  }
+}
+
+test("4 enclos saisis : l'aide sur les notifications n'apparaît qu'une fois, dans le bandeau", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisirTous(page);
+  await expect(page.getByText(/seulement tant que l.onglet reste ouvert/)).toHaveCount(1);
+  await expect(page.getByText(/pas encore configurées sur ce serveur/)).toHaveCount(1);
+  await expect(page.getByText(/Utilise plutôt « Ajouter à mon agenda »/)).toHaveCount(1);
+  await expect(page.getByTestId("aide-notifications")).toHaveCount(1);
+  /* chaque carte garde ses boutons d'action */
+  await expect(page.getByRole("button", { name: "Ajouter à mon agenda" })).toHaveCount(4);
+  const hauteur = await page.evaluate(() => document.documentElement.scrollHeight);
+  console.log(`HAUTEUR scrollHeight (4 enclos) = ${hauteur}`);
+});
+
+test("« Vider cet enclos » demande confirmation ; « Garder » conserve la saisie, « Oui, vider » l'efface", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisir(page);
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+
+  await carte.getByRole("button", { name: "Vider cet enclos" }).click();
+  await expect(carte.getByRole("group", { name: "Vider Enclos 1" })).toBeVisible();
+  await expect(carte.getByRole("button", { name: "Garder" })).toBeFocused();
+  await carte.getByRole("button", { name: "Garder" }).click();
+  await expect(carte.getByText(/Reviens avant/)).toBeVisible();
+  await expect(carte.getByRole("group", { name: "Vider Enclos 1" })).toHaveCount(0);
+
+  await carte.getByRole("button", { name: "Vider cet enclos" }).click();
+  await carte.getByRole("button", { name: "Oui, vider" }).click();
+  await expect(carte.getByRole("button", { name: "Saisir cet enclos" })).toBeVisible();
+  await expect(carte.getByText(/Reviens avant/)).toHaveCount(0);
 });
 
 test("claviers mobiles : sérénité négative tapée au clavier texte (« -3000 »), niveau « 200k » et kamas", async ({ page }) => {

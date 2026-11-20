@@ -26,7 +26,6 @@ import { construireIcs, lienGoogleAgenda, nomFichierIcs, type EvenementAgenda } 
 import { CAPACITE_JAUGE } from "@/lib/data";
 import type { Enclos } from "@/lib/schema";
 import { cn } from "@/lib/utils";
-import { MESSAGES_INDISPO } from "@/lib/push/client";
 import type { EtatPush } from "@/components/enclos/use-push";
 
 export interface PushCarte {
@@ -37,9 +36,11 @@ export interface PushCarte {
   demo: boolean;
   onActiver: () => void;
   onAnnuler: () => void;
+  /* l'autorisation de notifier est celle du navigateur : lue et expliquée une fois, dans le bandeau de la page */
+  onPermission: (p: Permission) => void;
 }
 
-type Permission = NotificationPermission | "indisponible";
+export type Permission = NotificationPermission | "indisponible";
 
 function evenementAgenda(enclos: Enclos, vue: VueEnclos, maintenantMs: number, margeMin: number): EvenementAgenda | null {
   /* heure de retour passée : aucun rappel ni agenda dans le passé (#31) */
@@ -101,7 +102,7 @@ export function EnclosCard({
   const nom = enclos.nom || `Enclos ${vue.index + 1}`;
   const [edition, setEdition] = useState(false);
   const [rappelA, setRappelA] = useState<number | null>(null);
-  const [permission, setPermission] = useState<Permission>("default");
+  const [confirmeVider, setConfirmeVider] = useState(false);
   const saisi = enclos.saisieLe !== null;
   const { retour, alerte, plan } = vue;
   const reste = retour ? (retour.quandMs - maintenantMs) / 1000 : null;
@@ -109,11 +110,6 @@ export function EnclosCard({
   const raison = raisonRetour(vue, maintenantMs) ?? "";
   const jaugeVidee = vue.jaugeVideMs !== null && vue.jaugeVideMs <= maintenantMs;
   const urgent = alerte !== null || (reste !== null && reste < 900);
-
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- l'API Notification n'existe que dans le navigateur
-    setPermission(typeof Notification === "undefined" ? "indisponible" : Notification.permission);
-  }, []);
 
   /* Rappel local : setTimeout, perdu si l'onglet est fermé ou rechargé. */
   useEffect(() => {
@@ -138,12 +134,12 @@ export function EnclosCard({
   const activerRappel = async () => {
     if (!retour) return;
     if (typeof Notification === "undefined") {
-      setPermission("indisponible");
+      push.onPermission("indisponible");
       return;
     }
     let p: NotificationPermission = Notification.permission;
     if (p === "default") p = await Notification.requestPermission();
-    setPermission(p);
+    push.onPermission(p);
     if (p === "granted") setRappelA(heureRappel(retour.quandMs, margeMin, Date.now()));
   };
 
@@ -309,20 +305,39 @@ export function EnclosCard({
                   {rappelA !== null ? `Prévenu ici à ${formatHeure(rappelA, maintenantMs)}` : "Me prévenir dans cet onglet"}
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
-                « Dans cet onglet » : seulement tant que l&apos;onglet reste ouvert (perdu au rechargement).
-                {permission === "denied" && " Notifications bloquées par ton navigateur."}
-                {permission === "indisponible" && " Les notifications ne sont pas disponibles sur ce navigateur."}
-              </p>
               <BlocPush push={push} rappel={enclos.rappel} maintenantMs={maintenantMs} />
             </div>
           )}
 
-          <div>
-            <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={onClear}>
-              Vider cet enclos
-            </Button>
-          </div>
+          {confirmeVider ? (
+            <div role="group" aria-label={`Vider ${nom}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 p-2.5 text-sm">
+              <p className="mr-auto">Vider {nom} ? La saisie et le rappel prévu seront perdus.</p>
+              <Button
+                size="sm"
+                variant="outline"
+                autoFocus
+                onClick={() => setConfirmeVider(false)}
+              >
+                Garder
+              </Button>
+              <Button
+                size="sm"
+                variant="destructive"
+                onClick={() => {
+                  setConfirmeVider(false);
+                  onClear();
+                }}
+              >
+                Oui, vider
+              </Button>
+            </div>
+          ) : (
+            <div>
+              <Button variant="ghost" size="sm" className="text-muted-foreground" onClick={() => setConfirmeVider(true)}>
+                Vider cet enclos
+              </Button>
+            </div>
+          )}
         </>
       )}
     </section>
@@ -342,7 +357,7 @@ function BlocPush({
   const { etat, enCours, note, demo } = push;
   const prevu = !demo && rappel !== null && rappel.at > maintenantMs;
   return (
-    <div className="flex flex-col gap-1.5 rounded-lg border border-dashed p-2.5" data-testid="bloc-push">
+    <div className="flex flex-col gap-1.5" data-testid="bloc-push">
       {prevu ? (
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm font-medium" role="status">
@@ -361,25 +376,6 @@ function BlocPush({
         >
           {enCours ? "Planification…" : "Recevoir une notification sur ce téléphone"}
         </Button>
-      )}
-      {demo ? (
-        <p className="text-xs text-muted-foreground">Pas de notification en mode démo.</p>
-      ) : (
-        <>
-          {etat.statut === "indisponible" && (
-            <p className="text-xs text-warning">
-              {MESSAGES_INDISPO[etat.raison]} Utilise plutôt « Ajouter à mon agenda » : l&apos;alarme de ton agenda
-              sonnera à l&apos;heure.
-            </p>
-          )}
-          {etat.statut === "pret" && !prevu && (
-            <p className="text-xs text-muted-foreground">
-              {etat.abonne
-                ? "Notifications activées sur cet appareil : chaque saisie planifie automatiquement son rappel."
-                : "Tu seras prévenu à l’heure du rappel, même onglet fermé ou téléphone en poche."}
-            </p>
-          )}
-        </>
       )}
       {note && (
         <p className="text-xs text-warning" role="status">

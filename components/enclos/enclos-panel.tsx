@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { BellRing } from "lucide-react";
-import { EnclosCard } from "@/components/enclos/enclos-card";
+import { EnclosCard, type Permission } from "@/components/enclos/enclos-card";
 import { usePush } from "@/components/enclos/use-push";
 import { magasinActif, useApp, useUi } from "@/components/app-state";
 import { BoutonDemo } from "@/components/commun/bouton-demo";
@@ -10,7 +10,7 @@ import { Choix } from "@/components/commun/choix";
 import { EnTete, Page } from "@/components/commun/en-tete";
 import { formatCompteARebours, trierParUrgence, vueEnclos, type Objectif } from "@/lib/enclos";
 import { enclosSchema, MARGES_RAPPEL_MIN, NB_ENCLOS, type Enclos } from "@/lib/schema";
-import { annulerApi, enJson, planifierApi } from "@/lib/push/client";
+import { annulerApi, enJson, MESSAGES_INDISPO, planifierApi } from "@/lib/push/client";
 import { contenuRappel } from "@/lib/push/rappel-enclos";
 
 const TITRE = "Mes enclos";
@@ -22,6 +22,11 @@ export function EnclosPanel() {
   const enclos = useApp((s) => s.enclos);
   const margeMin = useApp((s) => s.reglages.margeRappelMin);
   const push = usePush();
+  const [permission, setPermission] = useState<Permission>("default");
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- l'API Notification n'existe que dans le navigateur
+    setPermission(typeof Notification === "undefined" ? "indisponible" : Notification.permission);
+  }, []);
   /* Message propre à chaque enclos (succès / échec du rappel push) et opération en cours. */
   const [notes, setNotes] = useState<(string | null)[]>(() => Array(NB_ENCLOS).fill(null));
   const [enCours, setEnCours] = useState<boolean[]>(() => Array(NB_ENCLOS).fill(false));
@@ -141,19 +146,42 @@ export function EnclosPanel() {
         heure revenir. Le plus urgent est en haut.
       </EnTete>
 
-      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-card p-3 text-sm">
-        <span className="flex items-center gap-1.5 font-medium">
-          <BellRing className="size-4 text-primary" aria-hidden />
-          Me prévenir
-        </span>
-        <Choix
-          label="Marge des rappels avant l'heure de retour"
-          taille="sm"
-          valeur={margeMin}
-          onChange={changerMarge}
-          options={MARGES_RAPPEL_MIN.map((m) => ({ valeur: m, label: m === 0 ? "à l’heure" : `${m} min` }))}
-        />
-        <span className="text-muted-foreground">avant l&apos;heure de retour (agenda et notifications).</span>
+      <div className="flex flex-col gap-2 rounded-xl border bg-card p-3 text-sm">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <span className="flex items-center gap-1.5 font-medium">
+            <BellRing className="size-4 text-primary" aria-hidden />
+            Me prévenir
+          </span>
+          <Choix
+            label="Marge des rappels avant l'heure de retour"
+            taille="sm"
+            valeur={margeMin}
+            onChange={changerMarge}
+            options={MARGES_RAPPEL_MIN.map((m) => ({ valeur: m, label: m === 0 ? "à l’heure" : `${m} min` }))}
+          />
+          <span className="text-muted-foreground">avant l&apos;heure de retour (agenda et notifications).</span>
+        </div>
+        <div className="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="aide-notifications">
+          <p>
+            « Me prévenir dans cet onglet » : seulement tant que l&apos;onglet reste ouvert (perdu au rechargement).
+            {permission === "denied" && " Notifications bloquées par ton navigateur."}
+            {permission === "indisponible" && " Les notifications ne sont pas disponibles sur ce navigateur."}
+          </p>
+          {demo ? (
+            <p>Pas de notification en mode démo.</p>
+          ) : push.etat.statut === "indisponible" ? (
+            <p className="text-warning">
+              {MESSAGES_INDISPO[push.etat.raison]} Utilise plutôt « Ajouter à mon agenda » : l&apos;alarme de ton agenda
+              sonnera à l&apos;heure.
+            </p>
+          ) : push.etat.statut === "pret" ? (
+            <p>
+              {push.etat.abonne
+                ? "Notifications activées sur cet appareil : chaque saisie planifie automatiquement son rappel."
+                : "« Recevoir une notification sur ce téléphone » : tu seras prévenu à l’heure du rappel, même onglet fermé ou téléphone en poche."}
+            </p>
+          ) : null}
+        </div>
       </div>
 
       {!pret ? (
@@ -176,6 +204,7 @@ export function EnclosPanel() {
                 demo,
                 onActiver: () => void activerPush(v.index),
                 onAnnuler: () => annulerPush(v.index),
+                onPermission: setPermission,
               }}
               onSave={(e) => sauver(v.index, e)}
               onClear={() => vider(v.index)}
