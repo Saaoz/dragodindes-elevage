@@ -278,6 +278,8 @@ test("« Vider cet enclos » demande confirmation ; « Garder » conserve la sai
   await carte.getByRole("button", { name: "Oui, vider" }).click();
   await expect(carte.getByRole("button", { name: "Saisir cet enclos" })).toBeVisible();
   await expect(carte.getByText(/Reviens avant/)).toHaveCount(0);
+});
+
 test("claviers mobiles : sérénité négative tapée au clavier texte (« -3000 »), niveau « 200k » et kamas", async ({ page }) => {
   await page.goto("/enclos");
   const carte = page.getByRole("region", { name: "Enclos 1" });
