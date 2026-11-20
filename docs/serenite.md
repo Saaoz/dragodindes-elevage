@@ -54,6 +54,21 @@ Entrée : `{ serenites, sens: "+" | "-" | null, niveauJauge, cible?, zone?, capa
   trop écartées, `statut: "tropEcartees"` et `groupes` propose un regroupement des montures de
   sérénité proche dans des enclos séparés. Autres statuts : `sensIncoherent` (utiliser l'autre jauge),
   `horsZone`, `dejaAtteint`, `aucuneMonture`. `excedent` signale une jauge déjà trop remplie.
+  `message` = `conseil` + (si excédent) un avertissement ; sans excédent, « pas besoin de revenir
+  avant qu'elle soit vide » ; avec excédent, cette phrase n'apparaît jamais.
+
+### Conseil affiché sur la carte (#33)
+
+La carte n'affiche pas `aRemplir.message` (recalculé chaque seconde sur l'état estimé maintenant) mais
+`VueEnclos.conseil`, calculé **à l'heure de retour** (stable) : « À ton retour : mets N points … ». À
+l'heure de retour, la jauge est supposée remplacée : on part des sérénités estimées à cet instant
+et d'une jauge vide. Si la jauge contient plus de points que nécessaire, la carte ajoute « reviens avant
+HH:MM pour changer de jauge ». Retour dépassé (#31) : pas de conseil de remplissage, seulement la
+consigne de ressaisie. Sans heure de retour (jauge vide à la saisie), « pas besoin de revenir » reste
+possible.
+
+**Incertitude** : on ne sait pas si le jeu permet de retirer le carburant ou de couper une jauge ;
+la carte ne le promet donc pas (ancienne phrase « reviens la couper »).
 
 Pour #2 : `etatEnclos(enclos, maintenant)` estime l'état actuel d'un enclos du schéma
 (`lib/schema.ts`) à partir de `saisieLe`, et `planEnclos(enclos, maintenant, { zone, cible })` donne
@@ -72,6 +87,8 @@ tout en tier 4, soit **2 000 s ≈ 33 min** ; les 192 000 points restants (≈ 3
 
 ## À vérifier en jeu
 
+- [ ] Peut-on **retirer le carburant** (ou couper une jauge) avant qu'elle soit vide, ou seulement
+  changer de jauge (Sérénité + / −) ? La carte dit « à vérifier en jeu » (#33).
 - [ ] **Valeur de chaque visage** : le jeu montre des visages, pas un nombre. Le filtre « Sérénité de
   … à … » de l'Étable permet d'encadrer la valeur exacte d'une monture.
 - [ ] Le niveau exact d'une jauge est-il affiché quelque part (survol de la barre) ?

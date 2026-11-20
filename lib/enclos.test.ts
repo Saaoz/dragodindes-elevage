@@ -356,3 +356,49 @@ describe("retour dépassé (#31) : les événements gardent leur vraie heure, ca
     expect(u[1].retardS).toBeNull();
   });
 });
+
+describe("conseil de remplissage de la carte (#33)", () => {
+  const maturite = (e: ReturnType<typeof enclosTest>, t: number) => vueEnclos(e, 0, T0 + t * 1000, "maturite");
+
+  it("avec excédent : jamais « pas besoin de revenir », conseil pour le retour, sans promesse de « couper »", () => {
+    const v = maturite(enclosTest([-3000], 200000), 0);
+    expect(v.retour).not.toBeNull();
+    const c = ss(v.conseil!);
+    expect(c).toMatch(/^À ton retour : mets 2 000 points au total dans la jauge Sérénité −\./);
+    expect(c).toMatch(/reviens avant 21 h 20 pour changer de jauge \(à vérifier en jeu/);
+    expect(c).not.toMatch(/pas besoin de revenir|couper/);
+  });
+
+  it("stable : même conseil à t et t + 60 s avant l'heure de retour", () => {
+    for (const objectif of ["aucun", "maturite"] as const) {
+      const e = enclosTest([-3000, 1000], 50000);
+      const a = vueEnclos(e, 0, T0, objectif).conseil;
+      const b = vueEnclos(e, 0, T0 + 60_000, objectif).conseil;
+      const c = vueEnclos(e, 0, T0 + 600_000, objectif).conseil;
+      expect(b).toBe(a);
+      expect(c).toBe(a);
+    }
+  });
+
+  it("sans heure de retour (jauge vide à la saisie) : « pas besoin de revenir » reste possible", () => {
+    const v = maturite(enclosTest([-3000], 0), 60);
+    expect(v.retour).toBeNull();
+    expect(ss(v.conseil!)).toMatch(/pas besoin de revenir avant qu.elle soit vide/);
+  });
+
+  it("une carte avec heure de retour n'affiche jamais « pas besoin de revenir »", () => {
+    for (const niveau of [3000, 50000, 200000])
+      for (const objectif of ["aucun", "maturite"] as const) {
+        const v = vueEnclos(enclosTest([-3000, 1000], niveau), 0, T0, objectif);
+        expect(v.retour).not.toBeNull();
+        expect(v.conseil ?? "").not.toMatch(/pas besoin de revenir/);
+      }
+  });
+
+  it("retour dépassé (#31) : pas de conseil de remplissage, seul CONSEIL_RETARD s'applique", () => {
+    const v = vueEnclos(enclosTest([-3000], 200000), 0, T0 + 2 * 3600_000);
+    expect(v.retardS).not.toBeNull();
+    expect(v.conseil).toBeNull();
+    expect(CONSEIL_RETARD).toMatch(/Je quitte l’enclos/);
+  });
+});
