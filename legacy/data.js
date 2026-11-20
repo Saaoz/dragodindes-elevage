@@ -57,13 +57,16 @@ const CARBURANTS = [
   { nom: "Élixir", tierMax: "4 (200 000)", metier: 155, poussiere: 3200 }
 ];
 
+/* Jauges de l'enclos, noms de la 3.7 (correspondance avec les anciens noms : onglet Sources).
+   Sérénité + et Sérénité − sont liées : une seule des deux est active à la fois.
+   2 jauges actives au maximum, toutes catégories confondues. */
 const JAUGES = [
-  { nom: "Baffeur", effet: "Fait baisser la sérénité (lié au Caresseur : un seul actif)." },
-  { nom: "Caresseur", effet: "Fait monter la sérénité." },
-  { nom: "Foudroyeur", effet: "Monte l'Endurance (sérénité négative)." },
-  { nom: "Abreuvoir", effet: "Monte la Maturité (sérénité entre -2 000 et 2 000)." },
-  { nom: "Dragofesse", effet: "Monte l'Amour (sérénité positive)." },
-  { nom: "Mangeoire", effet: "Donne de l'XP à la monture." }
+  { nom: "Sérénité −", effet: "Fait baisser la sérénité. Liée à Sérénité + : une seule des deux est active." },
+  { nom: "Sérénité +", effet: "Fait monter la sérénité. Liée à Sérénité − : une seule des deux est active." },
+  { nom: "Endurance", effet: "Monte l'Endurance (sérénité négative)." },
+  { nom: "Maturité", effet: "Monte la Maturité (sérénité entre -2 000 et 2 000)." },
+  { nom: "Amour", effet: "Monte l'Amour (sérénité positive)." },
+  { nom: "Expérience de monture", effet: "Donne de l'XP à la monture." }
 ];
 
 const ENCLOS_METIER = [
@@ -85,18 +88,18 @@ const MAKINAS = [
 ];
 
 const ALMANAX = [
-  "Janvier (Trôma) : Abreuvoirs doublés",
+  "Janvier (Trôma) : jauges de Maturité doublées (à vérifier en 3.7)",
   "Février (Meash) : capacité Endurante aux naissances",
-  "Mars (Inndo) : Foudroyeurs doublés",
-  "Avril (Nunu) : Baffeurs doublés",
+  "Mars (Inndo) : jauges d'Endurance doublées (à vérifier en 3.7)",
+  "Avril (Nunu) : jauges de Sérénité − doublées (à vérifier en 3.7)",
   "Mai (Loumi) : -15 % d'ingrédients sur les crafts d'éleveur",
-  "Juin (Jibejan) : Mangeoires doublées",
+  "Juin (Jibejan) : jauges d'Expérience de monture doublées (à vérifier en 3.7)",
   "Juillet (Jihelair) : capacité Amoureuse aux naissances",
   "Août (Rigamix) : 25 % de chances d'un second objet sur les crafts",
-  "Septembre (Mau) : Caresseurs doublés",
+  "Septembre (Mau) : jauges de Sérénité + doublées (à vérifier en 3.7)",
   "Octobre (Benjo) : capacité Sage aux naissances — et Takeza (date variable) : +20 % sur la génération cible",
   "Novembre (Otoul) : +20 % sur la génération cible (1 source ; la capacité Précoce a été supprimée en 3.7)",
-  "Décembre (Foya) : Dragofesses doublées"
+  "Décembre (Foya) : jauges d'Amour doublées (à vérifier en 3.7)"
 ];
 
 const SOURCES = [
