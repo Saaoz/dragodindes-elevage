@@ -1,7 +1,14 @@
 /* Logique pure du panneau « Mes enclos » (#2) : visages, saisie, formats, urgence.
    Le calcul de sérénité lui-même reste dans lib/serenity.ts. */
 import { CAPACITE_JAUGE } from "@/lib/data";
-import { AUTRES_JAUGES, enclosSchema, NB_ENCLOS, type Enclos } from "@/lib/schema";
+import {
+  AUTRES_JAUGES,
+  enclosSchema,
+  MARGE_RAPPEL_DEFAUT_MIN,
+  NB_ENCLOS,
+  type Enclos,
+  type Objectif,
+} from "@/lib/schema";
 import {
   planEnclos,
   SERENITE_MAX,
@@ -15,8 +22,8 @@ import {
 } from "@/lib/serenity";
 
 export const MAX_MONTURES = 10;
-/** Marge de sécurité : on propose de revenir un peu AVANT l'événement. */
-export const MARGE_RETOUR_S = 300;
+/** Marge de sécurité par défaut : on prévient un peu AVANT l'événement (réglable, voir `reglages`). */
+export const MARGE_RETOUR_S = MARGE_RAPPEL_DEFAUT_MIN * 60;
 
 /* ---------- visages ---------- */
 /* Les guides donnent des PLAGES, pas une valeur par visage (docs/serenite.md) :
@@ -60,7 +67,7 @@ export function parseNombre(texte: string): number | null {
   return Number.isFinite(n) ? Math.round(n) : null;
 }
 
-export type Objectif = "aucun" | "maturite";
+export type { Objectif };
 export const ZONES: Record<Objectif, ZoneSerenite | undefined> = { aucun: undefined, maturite: ZONE_MATURITE };
 
 export interface Brouillon {
@@ -154,7 +161,12 @@ export interface VueEnclos {
 
 const TYPES_RETOUR = new Set(["sortieZone", "premiereBorne", "jaugeVide"]);
 
-export function vueEnclos(enclos: Enclos, index: number, maintenantMs: number, objectif: Objectif = "aucun"): VueEnclos {
+export function vueEnclos(
+  enclos: Enclos,
+  index: number,
+  maintenantMs: number,
+  objectif: Objectif = enclos.objectif ?? "aucun",
+): VueEnclos {
   const plan = planEnclos(enclos, maintenantMs, { zone: ZONES[objectif] });
   const actif = enclos.saisieLe !== null && plan.etat.sens !== null;
   const ev = actif ? plan.evenements.find((e) => TYPES_RETOUR.has(e.type)) : undefined;
@@ -177,6 +189,22 @@ export function trierParUrgence<T extends { index: number; retour: RetourEnclos 
     const qb = b.retour?.quandMs ?? Infinity;
     return qa === qb ? a.index - b.index : qa < qb ? -1 : 1;
   });
+}
+
+/** Heure du rappel (agenda, notification) : `marge` minutes avant le retour, jamais dans le passé. */
+export function heureRappel(retourMs: number, margeMin: number, maintenantMs: number): number {
+  return Math.max(retourMs - Math.max(0, margeMin) * 60_000, maintenantMs);
+}
+
+/** « 5 min avant », « à l'heure exacte ». */
+export const libelleMarge = (margeMin: number): string =>
+  margeMin <= 0 ? "à l’heure exacte" : `${margeMin} min avant`;
+
+/** Le plus urgent d'abord, limité aux enclos saisis qui ont une heure de retour (tableau de bord). */
+export function enclosUrgents(liste: readonly Enclos[], maintenantMs: number, max = 3): VueEnclos[] {
+  return trierParUrgence(liste.map((e, i) => vueEnclos(e, i, maintenantMs)))
+    .filter((v) => v.retour !== null)
+    .slice(0, max);
 }
 
 /* ---------- formats ---------- */

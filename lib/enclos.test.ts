@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
   brouillonDe,
+  enclosUrgents,
+  heureRappel,
+  libelleMarge,
   enclosDeBrouillon,
   formatCompteARebours,
   formatDuree,
@@ -143,5 +146,31 @@ describe("formats", () => {
     expect(formatDuree(3900)).toBe("1 h 05 min");
     expect(formatCompteARebours(723)).toBe("12:03");
     expect(formatCompteARebours(3909)).toBe("1:05:09");
+  });
+});
+
+describe("refonte (#4) : marge réglable et tableau de bord", () => {
+  it("heureRappel : retour moins la marge, jamais dans le passé", () => {
+    expect(heureRappel(T0 + 3_600_000, 10, T0)).toBe(T0 + 3_000_000);
+    expect(heureRappel(T0 + 60_000, 5, T0)).toBe(T0);
+    expect(heureRappel(T0 + 60_000, 0, T0)).toBe(T0 + 60_000);
+    expect(libelleMarge(0)).toBe("à l’heure exacte");
+    expect(libelleMarge(15)).toBe("15 min avant");
+  });
+
+  it("enclosUrgents : saisis avec heure de retour, le plus urgent d'abord, 3 au plus", () => {
+    const liste = defaultEnclos();
+    liste[4] = enclosTest([-3000], 200000); // ±5 000 vite atteint
+    liste[1] = enclosTest([0], 200000, "-");
+    liste[2] = enclosTest([0], 0, null); // pas de jauge : pas de retour
+    const u = enclosUrgents(liste, T0);
+    expect(u.map((v) => v.index)).toEqual([1, 4]); // Sérénité − : −5 000 en 1 250 s ; Sérénité + : +5 000 en 2 000 s
+    expect(enclosUrgents(liste, T0, 1)).toHaveLength(1);
+  });
+
+  it("vueEnclos utilise l'objectif enregistré par défaut", () => {
+    const e = { ...enclosTest([1500], 200000), objectif: "maturite" as const };
+    expect(vueEnclos(e, 0, T0).retour?.evenement.type).toBe("sortieZone");
+    expect(vueEnclos(e, 0, T0, "aucun").retour?.evenement.type).not.toBe("sortieZone");
   });
 });

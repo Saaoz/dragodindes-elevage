@@ -581,3 +581,45 @@ describe("rappel push par enclos (#16) : version 5", () => {
     expect(st().enclos[0].rappel).toBeNull();
   });
 });
+
+describe("refonte (#4) : objectif par enclos, marge des rappels, démo", () => {
+  it("l'objectif est enregistré et persisté ; une valeur illisible retombe sur « aucun » sans perdre l'enclos", async () => {
+    expect(st().setObjectif(2, "maturite")).toBe(true);
+    expect(st().setObjectif(2, "nimporte" as never)).toBe(false);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).state.enclos[2].objectif).toBe("maturite");
+    const enclos = st().enclos.map((e, i) => ({ ...e, saisieLe: 10 + i, objectif: i === 1 ? 42 : e.objectif }));
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: STORAGE_VERSION, state: { ...fixture.data, enclos } }));
+    await useStore.persist.rehydrate();
+    expect(st().enclos[1].saisieLe).toBe(11);
+    expect(st().enclos[1].objectif).toBe("aucun");
+    expect(st().enclos[2].objectif).toBe("maturite");
+  });
+
+  it("marge des rappels : 5 min par défaut, valeurs de la liste seulement, conservée à l'import d'un export v2", () => {
+    expect(st().reglages.margeRappelMin).toBe(5);
+    expect(st().setMargeRappel(15)).toBe(true);
+    expect(st().setMargeRappel(7)).toBe(false);
+    expect(st().reglages.margeRappelMin).toBe(15);
+    expect(st().importJSON(fixtureText).ok).toBe(true);
+    expect(st().reglages.margeRappelMin).toBe(15);
+    expect(JSON.parse(st().exportJSON()).data.reglages).toEqual({ margeRappelMin: 15 });
+  });
+
+  it("setEnclos : remplace l'enclos, remet le rappel à null, refuse un indice invalide", () => {
+    const e = { ...st().enclos[0], nom: "Nord", saisieLe: 5, rappel: { messageId: "m", at: 1 } };
+    expect(st().setEnclos(0, e)).toBe(true);
+    expect(st().enclos[0]).toMatchObject({ nom: "Nord", saisieLe: 5, rappel: null });
+    expect(st().setEnclos(6, e)).toBe(false);
+  });
+
+  it("la démo a des enclos saisis, et les modifier ne touche jamais au vrai magasin", () => {
+    const d = useDemoStore.getState();
+    expect(d.enclos.filter((e) => e.saisieLe !== null)).toHaveLength(3);
+    const before = snapshot();
+    d.setObjectif(0, "maturite");
+    d.setMargeRappel(30);
+    d.setEnclos(1, { ...d.enclos[1], nom: "x" });
+    expect(snapshot()).toBe(before);
+    expect(useDemoStore.getState().reglages.margeRappelMin).toBe(30);
+  });
+});

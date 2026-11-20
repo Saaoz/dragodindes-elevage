@@ -310,3 +310,12 @@ describe("contenu du rappel d'un enclos", () => {
     if (c.ok) expect(contenuRappel(enclos, 0, "aucun", c.at - 30_000).ok).toBe(false);
   });
 });
+
+describe("marge réglable du rappel push (#4)", () => {
+  const enclos = enclosSchema.parse({ nom: "Sud", montures: [{ serenite: -3000 }], jaugeSerenite: "+", niveauSerenite: 200000, saisieLe: T0 });
+  it("la marge décale l'heure d'envoi", () => {
+    const a = contenuRappel(enclos, 0, "aucun", T0, 0);
+    const b = contenuRappel(enclos, 0, "aucun", T0, 600);
+    expect(a.ok && b.ok && a.at - b.at).toBe(600_000);
+  });
+});
