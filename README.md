@@ -49,6 +49,8 @@ Tout tourne **en local** (pas de GitHub Actions).
 | `npm run test:e2e` | Playwright (`e2e/`), profils bureau et mobile |
 | `npm run check` | lint + typecheck + test + build |
 
+Le port des tests e2e vient de `E2E_PORT` (défaut 3100) : pour lancer plusieurs runs en parallèle, `E2E_PORT=3101 npm run test:e2e` (PowerShell : `$env:E2E_PORT=3101; npm run test:e2e`).
+
 `npm run check` est lancé automatiquement avant chaque `git push` (hook `simple-git-hooks`,
 installé par `npm install` via le script `prepare`). Playwright utilise Chromium :
 `npx playwright install chromium` au premier usage.
