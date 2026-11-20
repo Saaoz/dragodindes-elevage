@@ -12,7 +12,7 @@ import { parseKamas, type Prices } from "./calc";
 import {
   APP_ID, EXPORT_SCHEMA_VERSION, NB_ENCLOS, OBJECTIFS, PRICE_KEYS, SERVER_IDS, appDataSchema, calcSchema,
   defaultAppData, enclosSchema, priceEntrySchema, rappelPushSchema, reglagesSchema, type AppData, type CalcState,
-  type Enclos, type Objectif, type PriceKey, type PricesState, type RappelPush, type ServerId, type ServerPrices,
+  type Enclos, type MethodeRappel, type Objectif, type PriceKey, type PricesState, type RappelPush, type ServerId, type ServerPrices,
 } from "./schema";
 
 /* ---------- clés localStorage et versions ----------
@@ -24,8 +24,9 @@ export const STORAGE_KEY = "dd-elevage-v3";
    ouverte (onglet, service worker) ne verrait pas qu'elle est dépassée et écraserait les données.
    4 : Optimakina par génération (opti2..opti10) ; 5 : rappel push par enclos (#16) ;
    6 : objectif par enclos et marge de rappel (#30) — aucune donnée à transformer (défauts du schéma),
-   la version sert uniquement à passer les anciennes versions en lecture seule (`futureVersion`). */
-export const STORAGE_VERSION = 6;
+   la version sert uniquement à passer les anciennes versions en lecture seule (`futureVersion`) ;
+   7 : méthode de rappel mémorisée (`reglages.methodeRappel`, #51). */
+export const STORAGE_VERSION = 7;
 export const LEGACY_V2_KEY = "dd-elevage-v2";
 export const LEGACY_V1_KEY = "dd-elevage-v1";
 
@@ -100,6 +101,15 @@ export function migrateRappels<T>(data: T): T {
     return { ...e, rappel: r.success ? r.data : null };
   });
   return { ...data, enclos } as T;
+}
+
+/* ---------- migration v6 → v7 : méthode de rappel mémorisée (#51) ----------
+   `reglages.methodeRappel` vaut null s'il est absent ou illisible. Idempotent ; ne modifie pas son argument. */
+export function migrateMethodeRappel<T>(data: T): T {
+  if (!isObj(data)) return data;
+  const reglages = isObj(data.reglages) ? data.reglages : {};
+  const r = reglagesSchema.shape.methodeRappel.safeParse(reglages.methodeRappel ?? null);
+  return { ...data, reglages: { ...reglages, methodeRappel: r.success ? r.data : null } } as T;
 }
 
 /* Le rappel est propre à l'appareil (subscription push locale) : jamais exporté ni importé. */
@@ -287,6 +297,7 @@ export interface Actions {
   setObjectif: (i: number, o: Objectif) => boolean;
   /* Marge des rappels en minutes (0, 5, 10, 15 ou 30). */
   setMargeRappel: (min: number) => boolean;
+  setMethodeRappel: (m: MethodeRappel | null) => boolean;
   oldestAge: (server: ServerId) => number | null;
 }
 export type AppStore = AppData & Actions;
@@ -417,6 +428,12 @@ function makeCreator(demo: boolean, initial: () => AppData): StateCreator<AppSto
       set({ reglages: { ...get().reglages, margeRappelMin: r.data } });
       return true;
     },
+    setMethodeRappel: (m) => {
+      const r = reglagesSchema.shape.methodeRappel.safeParse(m);
+      if (!r.success || r.data !== m) return false;
+      set({ reglages: { ...get().reglages, methodeRappel: r.data } });
+      return true;
+    },
     oldestAge: (server) => oldestAge(get().prices, server),
   });
 }
@@ -495,7 +512,8 @@ export const useStore = create<AppStore>()(
       const v1 = version === 1 ? migrateV1(persisted) : persisted;
       const v4 = version < 4 ? migrateOptimakina(v1) : v1;
       /* v5 → v6 : rien à transformer (objectif et reglages.margeRappelMin ont des défauts au schéma). */
-      return (version < 5 ? migrateRappels(v4) : v4) as AppStore;
+      const v5 = version < 5 ? migrateRappels(v4) : v4;
+      return (version < 7 ? migrateMethodeRappel(v5) : v5) as AppStore;
     },
     /* Toujours nettoyer ce qui vient du disque, même à version égale. */
     merge: (persisted, current) => ({ ...current, ...sanitize(persisted) }),

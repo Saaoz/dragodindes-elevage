@@ -1,4 +1,4 @@
-import { expect, test, type Page } from "@playwright/test";
+import { expect, test, type Locator, type Page } from "@playwright/test";
 
 async function saisir(page: Page) {
   await page.getByRole("region", { name: "Enclos 1" }).getByRole("button", { name: "Saisir cet enclos" }).click();
@@ -6,6 +6,15 @@ async function saisir(page: Page) {
   await page.getByRole("button", { name: "Sérénité +" }).click();
   await page.getByPlaceholder("ex. 200000 ou 85k").fill("200000");
   await page.getByRole("button", { name: /Enregistrer/ }).click();
+}
+
+/* #51 : un seul bouton de rappel par carte ; le choix de la méthode s'ouvre au premier appui. */
+const boutonRappel = (carte: Locator) => carte.getByRole("button", { name: /^Me rappeler à/ });
+const choix = (page: Page) => page.getByRole("dialog", { name: "Comment te rappeler ?" });
+async function programmerAvec(page: Page, carte: Locator, methode: string | RegExp) {
+  await boutonRappel(carte).click();
+  await choix(page).getByRole("radio", { name: methode }).check();
+  await choix(page).getByRole("button", { name: /^Me rappeler à/ }).click();
 }
 
 const etatLocal = (page: Page) => page.evaluate(() => JSON.stringify(Object.entries(localStorage).sort()));
@@ -29,7 +38,7 @@ test("saisie d'un enclos : alerte ±5 000, heure de retour, persistance, agenda
   await expect(carte2.getByRole("alert")).toContainText("+5 000");
 
   const download = page.waitForEvent("download");
-  await carte2.getByRole("button", { name: "Ajouter à mon agenda" }).click();
+  await programmerAvec(page, carte2, /Dans mon agenda/);
   const d = await download;
   expect(d.suggestedFilename()).toMatch(/\.ics$/);
   const { readFile } = await import("node:fs/promises");
@@ -43,7 +52,7 @@ test("saisie d'un enclos : alerte ±5 000, heure de retour, persistance, agenda
   const dtstartMs = Date.parse(dtstart!.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, "$1-$2-$3T$4:$5:$6Z"));
   expect(Math.abs(dtstartMs - new Date(2026, 10, 20, 21, 28, 20).getTime())).toBeLessThanOrEqual(2000);
 
-  await expect(carte2.getByRole("link", { name: "Google Agenda" })).toHaveAttribute("href", /calendar\.google\.com/);
+  await expect(carte2.getByTestId("etat-rappel")).toContainText(/Rappel : dans ton agenda, à 21\sh\s28\s✓/);
   await expect(page).toHaveTitle(/·.*Enclos 1/);
 });
 
@@ -65,10 +74,10 @@ test("objectif et marge de rappel : enregistrés et visibles après rechargement
   await page.goto("/enclos");
   await saisir(page);
   const carte = page.getByRole("region", { name: "Enclos 1" });
-  await expect(carte.getByText(/Rappel 5 min avant l.heure de retour, soit à 21 h 28/)).toBeVisible();
+  await expect(boutonRappel(carte)).toHaveAccessibleName(/^Me rappeler à 21\sh\s28 pour l.enclos Enclos 1$/);
 
   await page.getByRole("group", { name: "Marge des rappels avant l'heure de retour" }).getByRole("button", { name: "15 min" }).click();
-  await expect(carte.getByText(/Rappel 15 min avant l.heure de retour, soit à 21 h 18/)).toBeVisible();
+  await expect(boutonRappel(carte)).toHaveAccessibleName(/^Me rappeler à 21\sh\s18 /);
 
   await carte.getByRole("button", { name: "Rester en Maturité" }).click();
   await expect(carte.getByRole("button", { name: "Rester en Maturité" })).toHaveAttribute("aria-pressed", "true");
@@ -77,7 +86,8 @@ test("objectif et marge de rappel : enregistrés et visibles après rechargement
   await page.reload();
   const carte2 = page.getByRole("region", { name: "Enclos 1" });
   await expect(carte2.getByRole("button", { name: "Rester en Maturité" })).toHaveAttribute("aria-pressed", "true");
-  await expect(carte2.getByText(/Rappel 15 min avant/)).toBeVisible();
+  await expect(boutonRappel(carte2)).toBeVisible();
+  await expect(page.getByRole("group", { name: "Marge des rappels avant l'heure de retour" }).getByRole("button", { name: "15 min" })).toHaveAttribute("aria-pressed", "true");
 });
 
 test("Rester en Maturité : au retour, le conseil inverse la jauge au lieu de « objectif déjà atteint » (#45)", async ({ page }) => {
@@ -126,7 +136,11 @@ test("mode démo sur les enclos : enclos fictifs, rien n'est écrit", async ({ p
   await expect(page.getByTestId("banniere-demo")).toBeVisible();
   const demo = page.getByRole("region", { name: "Enclos 1 (démo)" });
   await expect(demo.getByText(/Reviens avant/)).toBeVisible();
-  await expect(page.getByTestId("aide-notifications").getByText("Pas de notification en mode démo.")).toBeVisible();
+  /* en démo : un appui explique qu'aucun rappel réel n'est programmé, sans choix ni téléchargement */
+  await boutonRappel(demo).click();
+  await expect(demo.getByTestId("annonce-rappel")).toContainText("Mode démo : aucun rappel réel n’est programmé");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(demo.getByTestId("etat-rappel")).toHaveCount(0);
   await demo.getByRole("button", { name: "Rester en Maturité" }).click();
   await page.getByRole("button", { name: "30 min" }).click();
   expect(await etatLocal(page)).toBe(avant);
@@ -135,23 +149,174 @@ test("mode démo sur les enclos : enclos fictifs, rien n'est écrit", async ({ p
   await expect(page.getByRole("region", { name: "Enclos 1 (démo)" })).toHaveCount(0);
 });
 
-test("sans variables d'environnement : push désactivé avec explication, agenda toujours disponible", async ({ page }) => {
+test("sans variables d'environnement : pas de choix « téléphone », ni explication inutile ; agenda toujours disponible", async ({ page }) => {
   await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
   await page.goto("/enclos");
   await saisir(page);
   const carte = page.getByRole("region", { name: "Enclos 1" });
-  const bouton = carte.getByRole("button", { name: "Recevoir une notification sur ce téléphone" });
-  await expect(bouton).toBeVisible();
-  await expect(bouton).toBeDisabled();
-  /* l'explication est unique, dans le bandeau de la page, et non répétée sur la carte */
-  const aide = page.getByTestId("aide-notifications");
-  await expect(aide.getByText(/pas encore configurées sur ce serveur/)).toBeVisible();
-  await expect(aide.getByText(/Utilise plutôt « Ajouter à mon agenda »/)).toBeVisible();
-  await expect(carte.getByText(/pas encore configurées sur ce serveur/)).toHaveCount(0);
+  await boutonRappel(carte).click();
+  const dialogue = choix(page);
+  await expect(dialogue).toBeVisible();
+  await expect(dialogue.getByRole("radio", { name: /Sur mon téléphone/ })).toHaveCount(0);
+  await expect(dialogue.getByTestId("sans-push")).toHaveCount(0);
+  await expect(dialogue.getByRole("radio", { name: /Dans mon agenda/ })).toBeChecked();
+  await expect(dialogue.getByRole("radio", { name: /Dans Google Agenda/ })).toBeVisible();
+  await expect(page.getByText(/pas encore configurées sur ce serveur/)).toHaveCount(0);
 
   const download = page.waitForEvent("download");
-  await carte.getByRole("button", { name: "Ajouter à mon agenda" }).click();
+  await dialogue.getByRole("button", { name: /^Me rappeler à/ }).click();
   expect((await download).suggestedFilename()).toMatch(/\.ics$/);
+});
+
+test("premier appui → choix → rappel programmé → état ; deuxième enclos → un seul appui", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisirTous(page);
+  const c1 = page.getByRole("region", { name: "Enclos 1" });
+  const c2 = page.getByRole("region", { name: "Enclos 2" });
+  /* une seule action de rappel par carte, plus de bandeau d'explications */
+  await expect(page.getByRole("button", { name: /^Me rappeler à/ })).toHaveCount(4);
+  await expect(page.getByRole("button", { name: /Ajouter à mon agenda|Me prévenir dans cet onglet|Recevoir une notification/ })).toHaveCount(0);
+  await expect(page.getByTestId("aide-notifications")).toHaveCount(0);
+  await expect(c1.getByTestId("etat-rappel")).toHaveCount(0);
+
+  /* premier appui : le choix s'ouvre, le focus est dedans, sur la meilleure méthode */
+  await boutonRappel(c1).click();
+  await expect(choix(page)).toBeVisible();
+  await expect(choix(page).getByRole("radio", { name: /Dans mon agenda/ })).toBeFocused();
+  const dl1 = page.waitForEvent("download");
+  await choix(page).getByRole("button", { name: /^Me rappeler à/ }).click();
+  await dl1;
+  await expect(choix(page)).toHaveCount(0);
+  await expect(boutonRappel(c1)).toBeFocused();
+  await expect(c1.getByTestId("annonce-rappel")).toHaveText(/^Rappel programmé à \d\d\sh\s\d\d$/);
+  await expect(c1.getByTestId("etat-rappel")).toContainText(/Rappel : dans ton agenda, à \d\d\sh\s\d\d\s✓/);
+
+  /* deuxième enclos : la méthode est mémorisée, un seul appui télécharge directement */
+  await expect(c2.getByTestId("methode-rappel")).toContainText("Façon de te rappeler : dans ton agenda");
+  const dl2 = page.waitForEvent("download");
+  await boutonRappel(c2).click();
+  expect((await dl2).suggestedFilename()).toMatch(/\.ics$/);
+  await expect(choix(page)).toHaveCount(0);
+  await expect(c2.getByTestId("etat-rappel")).toContainText("Rappel : dans ton agenda");
+
+  /* la méthode survit au rechargement */
+  await page.reload();
+  await expect(page.getByRole("region", { name: "Enclos 3" }).getByTestId("methode-rappel")).toContainText("dans ton agenda");
+});
+
+test("« changer » rouvre le choix avec la méthode actuelle ; Google Agenda s'ouvre dans un nouvel onglet", async ({ page, context }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisir(page);
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  const dl = page.waitForEvent("download");
+  await programmerAvec(page, carte, /Dans mon agenda/);
+  await dl;
+
+  await carte.getByRole("button", { name: /Changer la façon d.être rappelé pour l.enclos Enclos 1/ }).click();
+  await expect(choix(page)).toBeVisible();
+  await expect(choix(page).getByRole("radio", { name: /Dans mon agenda/ })).toBeChecked();
+  await context.route(/calendar\.google\.com/, (r) => r.fulfill({ body: "<title>Google Agenda</title>", contentType: "text/html" }));
+  const popup = context.waitForEvent("page");
+  await choix(page).getByRole("radio", { name: /Dans Google Agenda/ }).check();
+  await choix(page).getByRole("button", { name: /^Me rappeler à/ }).click();
+  const onglet = await popup;
+  expect(onglet.url()).toMatch(/^https:\/\/calendar\.google\.com\//);
+  await expect(carte.getByTestId("etat-rappel")).toContainText("Rappel : dans Google Agenda");
+  await onglet.close();
+
+  /* « Annuler le rappel » retire l'état */
+  await carte.getByRole("button", { name: /Changer la façon/ }).click();
+  await choix(page).getByRole("button", { name: "Annuler le rappel" }).click();
+  await expect(carte.getByTestId("etat-rappel")).toHaveCount(0);
+  await expect(carte.getByTestId("annonce-rappel")).toHaveText("Rappel annulé");
+});
+
+test("rappel dans la page : notification autorisée, état affiché, annonce vocale, notification à l'heure", async ({ page }) => {
+  await page.addInitScript(() => {
+    const envoyees: string[] = [];
+    (window as unknown as { __notifs: string[] }).__notifs = envoyees;
+    class FausseNotification {
+      static permission = "granted";
+      static requestPermission = async () => "granted";
+      constructor(titre: string) {
+        envoyees.push(titre);
+      }
+    }
+    (window as unknown as { Notification: unknown }).Notification = FausseNotification;
+  });
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisir(page);
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  await programmerAvec(page, carte, /tant que la page reste ouverte/);
+  await expect(carte.getByTestId("etat-rappel")).toContainText(/Rappel : dans cette page, tant qu.elle reste ouverte, à 21\sh\s28/);
+  await expect(carte.getByTestId("annonce-rappel")).toContainText(/Rappel programmé à 21\sh\s28/);
+  await page.clock.fastForward("00:29:00");
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __notifs: string[] }).__notifs)).toEqual(["Enclos 1 : reviens maintenant"]);
+  await expect(carte.getByTestId("etat-rappel")).toHaveCount(0);
+});
+
+test("clavier seul : ouvrir le choix, choisir avec les flèches, valider ; Échap ferme et rend le focus", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisir(page);
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  const bouton = boutonRappel(carte);
+  await bouton.focus();
+  await page.keyboard.press("Enter");
+  await expect(choix(page)).toBeVisible();
+  const agenda = choix(page).getByRole("radio", { name: /Dans mon agenda/ });
+  await expect(agenda).toBeFocused();
+
+  /* Échap ferme sans rien programmer, le focus revient au bouton */
+  await page.keyboard.press("Escape");
+  await expect(choix(page)).toHaveCount(0);
+  await expect(bouton).toBeFocused();
+  await expect(carte.getByTestId("etat-rappel")).toHaveCount(0);
+
+  /* flèche bas : Google Agenda ; Tab : « Fermer », puis « Me rappeler » ; le focus reste dans le dialogue */
+  await page.keyboard.press("Enter");
+  await expect(agenda).toBeFocused();
+  await page.keyboard.press("ArrowDown");
+  await expect(choix(page).getByRole("radio", { name: /Dans Google Agenda/ })).toBeChecked();
+  await page.keyboard.press("ArrowUp");
+  await expect(agenda).toBeChecked();
+  await page.keyboard.press("Tab");
+  await expect(choix(page).getByRole("button", { name: "Fermer" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  const valider = choix(page).getByRole("button", { name: /^Me rappeler à/ });
+  await expect(valider).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect.poll(() => page.evaluate(() => !!document.activeElement?.closest("[role=dialog]"))).toBe(true);
+  await valider.focus();
+  const dl = page.waitForEvent("download");
+  await page.keyboard.press("Enter");
+  await dl;
+  await expect(choix(page)).toHaveCount(0);
+  await expect(bouton).toBeFocused();
+
+  /* « changer » est atteignable au clavier et rouvre le choix */
+  await carte.getByRole("button", { name: /Changer la façon/ }).focus();
+  await page.keyboard.press("Enter");
+  await expect(choix(page)).toBeVisible();
+});
+
+test("cibles tactiles d'au moins 44 px : bouton de rappel et « changer »", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisir(page);
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  const taille = async (l: Locator) => (await l.boundingBox())!;
+  expect((await taille(boutonRappel(carte))).height).toBeGreaterThanOrEqual(44);
+  const dl = page.waitForEvent("download");
+  await programmerAvec(page, carte, /Dans mon agenda/);
+  await dl;
+  expect((await taille(carte.getByRole("button", { name: /Changer la façon/ }))).height).toBeGreaterThanOrEqual(44);
+  await carte.getByRole("button", { name: /Changer la façon/ }).click();
+  for (const b of await choix(page).getByRole("button").all()) expect((await taille(b)).height).toBeGreaterThanOrEqual(44);
+  for (const r of await choix(page).locator("label").all()) expect((await taille(r)).height).toBeGreaterThanOrEqual(44);
 });
 
 test("API des rappels sans configuration : réponses propres, aucun crash", async ({ request }) => {
@@ -185,8 +350,8 @@ test("retour dépassé (#31) : vraie durée de retard, alerte au passé, pas d'a
   await expect(carte.getByText(/clique « Je quitte l’enclos »/)).toBeVisible();
   await expect(carte.getByText(/Objectif déjà atteint/)).toHaveCount(0);
   await expect(carte.getByText(/pas besoin de revenir/)).toHaveCount(0);
-  await expect(carte.getByRole("button", { name: "Ajouter à mon agenda" })).toHaveCount(0);
-  await expect(carte.getByText(/Rappel .* l.heure de retour/)).toHaveCount(0);
+  await expect(boutonRappel(carte)).toHaveCount(0);
+  await expect(carte.getByTestId("rappel")).toHaveCount(0);
   await expect(page).toHaveTitle(/^En retard · Enclos 1/);
 
   /* la durée avance avec l'horloge (elle ne reste plus bloquée à 0 s) */
@@ -215,7 +380,7 @@ test("retour dépassé (#31) : jauge vidée sans borne atteinte, toujours visibl
   await expect(carte.getByText("Jauge Sérénité + vide depuis 21 h 50.")).toBeVisible();
   await expect(carte.getByText(/Jauge Sérénité \+ : vide depuis 21 h 50/)).toBeVisible();
   await expect(carte.getByText(/Aucune jauge de sérénité active/)).toHaveCount(0);
-  await expect(carte.getByRole("button", { name: "Ajouter à mon agenda" })).toHaveCount(0);
+  await expect(boutonRappel(carte)).toHaveCount(0);
 
   await page.getByRole("link", { name: "Accueil", exact: true }).click();
   await expect(page.getByRole("link", { name: /Enclos 1.*Retour dépassé.*jauge Sérénité \+ vide depuis 21 h 50/ })).toBeVisible();
@@ -271,20 +436,6 @@ async function saisirTous(page: Page) {
     await expect(carte.getByText(/Reviens avant/)).toBeVisible();
   }
 }
-
-test("4 enclos saisis : l'aide sur les notifications n'apparaît qu'une fois, dans le bandeau", async ({ page }) => {
-  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
-  await page.goto("/enclos");
-  await saisirTous(page);
-  await expect(page.getByText(/seulement tant que l.onglet reste ouvert/)).toHaveCount(1);
-  await expect(page.getByText(/pas encore configurées sur ce serveur/)).toHaveCount(1);
-  await expect(page.getByText(/Utilise plutôt « Ajouter à mon agenda »/)).toHaveCount(1);
-  await expect(page.getByTestId("aide-notifications")).toHaveCount(1);
-  /* chaque carte garde ses boutons d'action */
-  await expect(page.getByRole("button", { name: "Ajouter à mon agenda" })).toHaveCount(4);
-  const hauteur = await page.evaluate(() => document.documentElement.scrollHeight);
-  console.log(`HAUTEUR scrollHeight (4 enclos) = ${hauteur}`);
-});
 
 test("« Vider cet enclos » demande confirmation ; « Garder » conserve la saisie, « Oui, vider » l'efface", async ({ page }) => {
   await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
