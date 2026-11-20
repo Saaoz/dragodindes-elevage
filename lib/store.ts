@@ -19,7 +19,13 @@ import {
    Clé v3 propre. Les clés v2/v1 sont LUES (jamais modifiées) pour migrer automatiquement les
    données de la v2 si elle a tourné sur la même origine (elle était servie sous /legacy jusqu'à #4). */
 export const STORAGE_KEY = "dd-elevage-v3";
-export const STORAGE_VERSION = 5; // 4 : Optimakina par génération (opti2..opti10) ; 5 : rappel push par enclos (#16)
+/* RÈGLE : tout champ persisté ajouté (ou changé) = augmenter STORAGE_VERSION + écrire la migration
+   dans `migrate` + la tester (lib/store.test.ts). Sans cela, une ancienne version de l'appli restée
+   ouverte (onglet, service worker) ne verrait pas qu'elle est dépassée et écraserait les données.
+   4 : Optimakina par génération (opti2..opti10) ; 5 : rappel push par enclos (#16) ;
+   6 : objectif par enclos et marge de rappel (#30) — aucune donnée à transformer (défauts du schéma),
+   la version sert uniquement à passer les anciennes versions en lecture seule (`futureVersion`). */
+export const STORAGE_VERSION = 6;
 export const LEGACY_V2_KEY = "dd-elevage-v2";
 export const LEGACY_V1_KEY = "dd-elevage-v1";
 
@@ -457,7 +463,10 @@ const storage: PersistStorage<AppData> = {
       const s = ls();
       /* Version future sur le disque : lecture seule, on ne touche à rien (voir `futureVersion`). */
       if ((storedVersion(s, name) ?? 0) > STORAGE_VERSION) return;
-      s?.setItem(name, JSON.stringify(value));
+      const json = JSON.stringify(value);
+      /* Valeur identique : on n'écrit pas (une réhydratation ne doit rien réécrire ni réveiller les autres onglets). */
+      if (s?.getItem(name) === json) return;
+      s?.setItem(name, json);
       persistStatus.lastError = null;
     } catch (e) {
       persistStatus.lastError = e;
@@ -485,6 +494,7 @@ export const useStore = create<AppStore>()(
       if (version > STORAGE_VERSION) throw new Error("Données créées par une version plus récente de l'outil.");
       const v1 = version === 1 ? migrateV1(persisted) : persisted;
       const v4 = version < 4 ? migrateOptimakina(v1) : v1;
+      /* v5 → v6 : rien à transformer (objectif et reglages.margeRappelMin ont des défauts au schéma). */
       return (version < 5 ? migrateRappels(v4) : v4) as AppStore;
     },
     /* Toujours nettoyer ce qui vient du disque, même à version égale. */
@@ -495,6 +505,21 @@ export const useStore = create<AppStore>()(
     },
   }),
 );
+
+/* Synchronisation entre onglets : quand un autre onglet écrit la clé persistée, l'événement `storage`
+   relance la réhydratation, pour repartir des données à jour avant toute écriture (sinon un onglet
+   resté ouvert écraserait les changements des autres). L'événement ne part que dans les AUTRES
+   onglets, et la réhydratation n'écrit rien si la valeur est inchangée : pas de boucle.
+   Client uniquement ; renvoie la fonction de nettoyage. Le magasin démo n'est pas concerné. */
+export function syncOnglets(): () => void {
+  if (typeof window === "undefined") return () => {};
+  const onStorage = (e: StorageEvent) => {
+    if (e.key !== STORAGE_KEY || e.storageArea !== ls()) return;
+    void useStore.persist.rehydrate();
+  };
+  window.addEventListener("storage", onStorage);
+  return () => window.removeEventListener("storage", onStorage);
+}
 
 /* ---------- mode démo : magasin séparé, en mémoire, jamais persisté ---------- */
 export const DEMO_VALUES: Record<PriceKey, number> = {

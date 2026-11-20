@@ -192,3 +192,41 @@ test("retour dépassé (#31) : jauge vidée sans borne atteinte, toujours visibl
   await expect(page.getByRole("link", { name: /Enclos 1.*Retour dépassé.*jauge Sérénité \+ vide depuis 21 h 50/ })).toBeVisible();
   await expect(page.getByText(/Aucune jauge de sérénité active/)).toHaveCount(0);
 });
+
+/* #38 : deux onglets du même navigateur ne doivent jamais s'écraser mutuellement. */
+async function saisirEnclos(page: Page, n: number) {
+  await page.getByRole("region", { name: `Enclos ${n}` }).getByRole("button", { name: "Saisir cet enclos" }).click();
+  await page.getByLabel("Sérénité exacte de la monture 1").fill("-3000");
+  await page.getByRole("button", { name: "Sérénité +" }).click();
+  await page.getByPlaceholder("ex. 200000 ou 85k").fill("200000");
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+  await expect(page.getByRole("region", { name: `Enclos ${n}` }).getByText(/Reviens avant/)).toBeVisible();
+}
+const marge = (page: Page, min: number) =>
+  page.getByRole("group", { name: "Marge des rappels avant l'heure de retour" }).getByRole("button", { name: `${min} min` });
+
+test("deux onglets : un enclos saisi dans B survit à un réglage changé dans A, puis au rechargement de B", async ({ context }) => {
+  const a = await context.newPage();
+  const b = await context.newPage();
+  await a.goto("/enclos");
+  await b.goto("/enclos");
+  await saisirEnclos(b, 5);
+  await marge(a, 15).click();
+  await expect(marge(a, 15)).toHaveAttribute("aria-pressed", "true");
+  await b.reload();
+  await expect(b.getByRole("region", { name: "Enclos 5" }).getByText(/Reviens avant/)).toBeVisible();
+  await expect(marge(b, 15)).toHaveAttribute("aria-pressed", "true");
+});
+
+test("deux onglets : un réglage changé dans A survit à une saisie faite dans B", async ({ context }) => {
+  const a = await context.newPage();
+  const b = await context.newPage();
+  await a.goto("/enclos");
+  await b.goto("/enclos");
+  await marge(a, 30).click();
+  await expect(marge(a, 30)).toHaveAttribute("aria-pressed", "true");
+  await saisirEnclos(b, 5);
+  await a.reload();
+  await expect(marge(a, 30)).toHaveAttribute("aria-pressed", "true");
+  await expect(a.getByRole("region", { name: "Enclos 5" }).getByText(/Reviens avant/)).toBeVisible();
+});
