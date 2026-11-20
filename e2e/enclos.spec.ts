@@ -52,7 +52,9 @@ test("saisie d'un enclos : alerte ±5 000, heure de retour, persistance, agenda
   const dtstartMs = Date.parse(dtstart!.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, "$1-$2-$3T$4:$5:$6Z"));
   expect(Math.abs(dtstartMs - new Date(2026, 10, 20, 21, 28, 20).getTime())).toBeLessThanOrEqual(2000);
 
-  await expect(carte2.getByTestId("etat-rappel")).toContainText(/Rappel : dans ton agenda, à 21\sh\s28\s✓/);
+  await expect(carte2.getByTestId("etat-rappel")).toContainText(/Rappel programmé à 21\sh\s28\s\(dans ton agenda\)/);
+  /* le gros bouton a laissé la place à l'état : un nouvel appui ne peut plus dupliquer l'événement */
+  await expect(boutonRappel(carte2)).toHaveCount(0);
   await expect(page).toHaveTitle(/·.*Enclos 1/);
 });
 
@@ -188,9 +190,11 @@ test("premier appui → choix → rappel programmé → état ; deuxième enclos
   await choix(page).getByRole("button", { name: /^Me rappeler à/ }).click();
   await dl1;
   await expect(choix(page)).toHaveCount(0);
-  await expect(boutonRappel(c1)).toBeFocused();
+  /* le gros bouton disparaît : le focus passe à « changer » */
+  await expect(c1.getByRole("button", { name: /Changer la façon/ })).toBeFocused();
+  await expect(boutonRappel(c1)).toHaveCount(0);
   await expect(c1.getByTestId("annonce-rappel")).toHaveText(/^Rappel programmé à \d\d\sh\s\d\d$/);
-  await expect(c1.getByTestId("etat-rappel")).toContainText(/Rappel : dans ton agenda, à \d\d\sh\s\d\d\s✓/);
+  await expect(c1.getByTestId("etat-rappel")).toContainText(/^✓ Rappel programmé à \d\d\sh\s\d\d\s\(dans ton agenda\)/);
 
   /* deuxième enclos : la méthode est mémorisée, un seul appui télécharge directement */
   await expect(c2.getByTestId("methode-rappel")).toContainText("Façon de te rappeler : dans ton agenda");
@@ -198,11 +202,13 @@ test("premier appui → choix → rappel programmé → état ; deuxième enclos
   await boutonRappel(c2).click();
   expect((await dl2).suggestedFilename()).toMatch(/\.ics$/);
   await expect(choix(page)).toHaveCount(0);
-  await expect(c2.getByTestId("etat-rappel")).toContainText("Rappel : dans ton agenda");
+  await expect(c2.getByTestId("etat-rappel")).toContainText("Rappel programmé");
 
-  /* la méthode survit au rechargement */
+  /* la méthode et les rappels survivent au rechargement */
   await page.reload();
   await expect(page.getByRole("region", { name: "Enclos 3" }).getByTestId("methode-rappel")).toContainText("dans ton agenda");
+  await expect(page.getByRole("region", { name: "Enclos 1" }).getByTestId("etat-rappel")).toBeVisible();
+  await expect(page.getByRole("region", { name: "Enclos 2" }).getByTestId("etat-rappel")).toBeVisible();
 });
 
 test("« changer » rouvre le choix avec la méthode actuelle ; Google Agenda s'ouvre dans un nouvel onglet", async ({ page, context }) => {
@@ -223,14 +229,17 @@ test("« changer » rouvre le choix avec la méthode actuelle ; Google Agenda s'
   await choix(page).getByRole("button", { name: /^Me rappeler à/ }).click();
   const onglet = await popup;
   expect(onglet.url()).toMatch(/^https:\/\/calendar\.google\.com\//);
-  await expect(carte.getByTestId("etat-rappel")).toContainText("Rappel : dans Google Agenda");
+  await expect(carte.getByTestId("etat-rappel")).toContainText(/Rappel programmé à .* \(dans Google Agenda\)/);
   await onglet.close();
 
-  /* « Annuler le rappel » retire l'état */
+  /* « Annuler le rappel » retire l'état, le gros bouton revient (focus dessus) et l'événement à supprimer est rappelé */
   await carte.getByRole("button", { name: /Changer la façon/ }).click();
   await choix(page).getByRole("button", { name: "Annuler le rappel" }).click();
   await expect(carte.getByTestId("etat-rappel")).toHaveCount(0);
+  await expect(boutonRappel(carte)).toBeVisible();
+  await expect(boutonRappel(carte)).toBeFocused();
   await expect(carte.getByTestId("annonce-rappel")).toHaveText("Rappel annulé");
+  await expect(carte.getByTestId("ancien-rappel")).toContainText(/Pense à supprimer l.ancien rappel de 21\sh\s28 dans Google Agenda/);
 });
 
 test("rappel dans la page : notification autorisée, état affiché, annonce vocale, notification à l'heure", async ({ page }) => {
@@ -251,8 +260,14 @@ test("rappel dans la page : notification autorisée, état affiché, annonce voc
   await saisir(page);
   const carte = page.getByRole("region", { name: "Enclos 1" });
   await programmerAvec(page, carte, /tant que la page reste ouverte/);
-  await expect(carte.getByTestId("etat-rappel")).toContainText(/Rappel : dans cette page, tant qu.elle reste ouverte, à 21\sh\s28/);
+  await expect(carte.getByTestId("etat-rappel")).toContainText(/Rappel programmé à 21\sh\s28\s\(dans cette page, tant qu.elle reste ouverte\)/);
   await expect(carte.getByTestId("annonce-rappel")).toContainText(/Rappel programmé à 21\sh\s28/);
+  /* « dans la page » n'est pas mémorisé : après un rechargement, le bouton revient (et rien n'est persisté) */
+  await page.reload();
+  await expect(carte.getByTestId("etat-rappel")).toHaveCount(0);
+  await expect(boutonRappel(carte)).toBeVisible();
+  await boutonRappel(carte).click(); // la méthode « page » est mémorisée : un seul appui
+  await expect(carte.getByTestId("etat-rappel")).toBeVisible();
   await page.clock.fastForward("00:29:00");
   await expect.poll(() => page.evaluate(() => (window as unknown as { __notifs: string[] }).__notifs)).toEqual(["Enclos 1 : reviens maintenant"]);
   await expect(carte.getByTestId("etat-rappel")).toHaveCount(0);
@@ -295,7 +310,7 @@ test("clavier seul : ouvrir le choix, choisir avec les flèches, valider ; Écha
   await page.keyboard.press("Enter");
   await dl;
   await expect(choix(page)).toHaveCount(0);
-  await expect(bouton).toBeFocused();
+  await expect(carte.getByRole("button", { name: /Changer la façon/ })).toBeFocused();
 
   /* « changer » est atteignable au clavier et rouvre le choix */
   await carte.getByRole("button", { name: /Changer la façon/ }).focus();
@@ -475,4 +490,89 @@ test("claviers mobiles : sérénité négative tapée au clavier texte (« -3000
   await page.goto("/rentabilite");
   await page.getByRole("button", { name: "Génération 2" }).click();
   await expect(page.getByLabel("Prix : Monture gén. 2", { exact: true })).toHaveAttribute("inputmode", "text");
+});
+
+/* #53 : le rappel programmé est mémorisé par enclos et survit au rechargement ; la ressaisie le réinitialise. */
+const changer = (carte: Locator) => carte.getByRole("button", { name: /Changer la façon/ });
+
+async function ressaisir(page: Page, carte: Locator, serenite: string) {
+  await carte.getByRole("button", { name: "Je quitte l’enclos" }).click();
+  await page.getByLabel("Sérénité exacte de la monture 1").fill(serenite);
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+}
+
+test("agenda programmé → rechargement : « Rappel programmé ✓ » visible, pas de gros bouton ; ressaisie → le bouton revient avec la mention de l'ancien événement", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisir(page);
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  const dl = page.waitForEvent("download");
+  await programmerAvec(page, carte, /Dans mon agenda/);
+  await dl;
+  await expect(carte.getByTestId("etat-rappel")).toContainText(/^✓ Rappel programmé à 21\sh\s28\s\(dans ton agenda\)/);
+
+  await page.reload();
+  await expect(carte.getByTestId("etat-rappel")).toContainText(/Rappel programmé à 21\sh\s28\s\(dans ton agenda\)/);
+  await expect(boutonRappel(carte)).toHaveCount(0);
+  await expect(carte.getByTestId("ancien-rappel")).toHaveCount(0);
+  const stocke = await page.evaluate(() => JSON.parse(Object.entries(localStorage).find(([k]) => k.includes("dd"))![1]).state.enclos[0].rappel);
+  expect(stocke).toMatchObject({ methode: "agenda" });
+
+  /* ressaisie avec une autre sérénité : l'heure de retour change, le gros bouton revient */
+  await ressaisir(page, carte, "-1000");
+  await expect(boutonRappel(carte)).toBeVisible();
+  await expect(carte.getByTestId("etat-rappel")).toHaveCount(0);
+  await expect(carte.getByTestId("ancien-rappel")).toContainText(/^Pense à supprimer l.ancien rappel de 21\sh\s28 dans ton agenda/);
+  /* la mention survit au rechargement et disparaît avec l'heure de l'ancien événement */
+  await page.reload();
+  await expect(carte.getByTestId("ancien-rappel")).toBeVisible();
+  await page.clock.fastForward("00:30:00");
+  await expect(carte.getByTestId("ancien-rappel")).toHaveCount(0);
+});
+
+test("Google Agenda programmé → rechargement → état ; ressaisie → bouton + mention « Google Agenda »", async ({ page, context }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await context.route(/calendar\.google\.com/, (r) => r.fulfill({ body: "<title>Google Agenda</title>", contentType: "text/html" }));
+  await page.goto("/enclos");
+  await saisir(page);
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  const popup = context.waitForEvent("page");
+  await programmerAvec(page, carte, /Dans Google Agenda/);
+  await (await popup).close();
+  await page.reload();
+  await expect(carte.getByTestId("etat-rappel")).toContainText(/Rappel programmé à 21\sh\s28\s\(dans Google Agenda\)/);
+  await expect(boutonRappel(carte)).toHaveCount(0);
+  await ressaisir(page, carte, "-1000");
+  await expect(boutonRappel(carte)).toBeVisible();
+  await expect(carte.getByTestId("ancien-rappel")).toContainText(/ancien rappel de 21\sh\s28 dans Google Agenda/);
+});
+
+test("« changer » → « Annuler le rappel » : le bouton revient après rechargement aussi ; « Vider » réinitialise le rappel", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisir(page);
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  const dl = page.waitForEvent("download");
+  await programmerAvec(page, carte, /Dans mon agenda/);
+  await dl;
+  await changer(carte).click();
+  await choix(page).getByRole("button", { name: "Annuler le rappel" }).click();
+  await expect(boutonRappel(carte)).toBeVisible();
+  await page.reload();
+  await expect(boutonRappel(carte)).toBeVisible();
+  await expect(carte.getByTestId("etat-rappel")).toHaveCount(0);
+
+  /* reprogrammé puis vidé : plus aucun état, la mention de l'événement à supprimer est affichée */
+  const dl2 = page.waitForEvent("download");
+  await boutonRappel(carte).click();
+  await dl2;
+  await expect(carte.getByTestId("etat-rappel")).toBeVisible();
+  await carte.getByRole("button", { name: "Vider cet enclos" }).click();
+  await carte.getByRole("button", { name: "Oui, vider" }).click();
+  await expect(carte.getByTestId("rappel")).toHaveCount(0);
+  await expect(carte.getByTestId("ancien-rappel")).toContainText(/Pense à supprimer l.ancien rappel de 21\sh\s28 dans ton agenda/);
+  await saisir(page);
+  await expect(boutonRappel(carte)).toBeVisible();
+  await expect(carte.getByTestId("etat-rappel")).toHaveCount(0);
+  await expect(carte.getByTestId("ancien-rappel")).toBeVisible(); // l'événement déjà créé reste à supprimer
 });

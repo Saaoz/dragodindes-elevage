@@ -87,12 +87,26 @@ export const monture = z.object({
   serenite: z.number().int().min(-5000).max(5000).default(0),
 });
 
-export const rappelPushSchema = z.object({
-  messageId: z.string().min(1).max(128),
-  /* heure d'envoi prévue (ms) */
+/* Rappel programmé pour la saisie actuelle d'un enclos (#16 push, #53 agenda / Google Agenda).
+   « page » n'y figure pas : il disparaît vraiment au rechargement, on ne le persiste pas.
+   push : messageId du message QStash (pour l'annuler), at = heure d'envoi ; agenda / google : at = heure du rappel. */
+export const METHODES_PERSISTEES = ["push", "agenda", "google"] as const;
+export const rappelSchema = z
+  .object({
+    methode: z.enum(METHODES_PERSISTEES),
+    /* heure du rappel (ms) */
+    at: z.number().finite().nonnegative(),
+    messageId: z.string().min(1).max(128).optional(),
+  })
+  .refine((r) => r.methode !== "push" || r.messageId !== undefined, { message: "messageId requis pour le push" });
+export type Rappel = z.infer<typeof rappelSchema>;
+
+/* Événement d'agenda laissé par une saisie précédente : l'appli ne peut pas le retirer, elle le rappelle au joueur. */
+export const ancienRappelSchema = z.object({
+  methode: z.enum(["agenda", "google"]),
   at: z.number().finite().nonnegative(),
 });
-export type RappelPush = z.infer<typeof rappelPushSchema>;
+export type AncienRappel = z.infer<typeof ancienRappelSchema>;
 
 export const enclosSchema = z.object({
   nom: z.string().max(60).default(""),
@@ -104,9 +118,11 @@ export const enclosSchema = z.object({
   niveauAutre: z.number().int().min(0).max(CAPACITE_JAUGE).default(0),
   /* horodatage de la saisie des niveaux (ms), null si jamais saisi */
   saisieLe: z.number().finite().nonnegative().nullable().default(null),
-  /* Rappel push planifié sur CET appareil (#16) : identifiant du message QStash pour l'annuler.
-     Propre à l'appareil : jamais exporté, remis à null à l'import. */
-  rappel: rappelPushSchema.nullable().default(null),
+  /* Rappel programmé sur CET appareil pour la saisie actuelle (push, agenda, Google Agenda) ; remis à null
+     à chaque ressaisie. Propre à l'appareil : jamais exporté, remis à null à l'import. */
+  rappel: rappelSchema.nullable().default(null),
+  /* Dernier événement d'agenda / Google laissé par la saisie précédente (à supprimer à la main). Propre à l'appareil. */
+  ancienRappel: ancienRappelSchema.nullable().catch(null),
   /* Objectif choisi pour cet enclos ; absent (anciennes données) ou illisible : « aucun »,
      sans jamais faire perdre l'enclos. */
   objectif: z.enum(OBJECTIFS).catch("aucun"),

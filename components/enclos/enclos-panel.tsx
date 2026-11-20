@@ -72,7 +72,7 @@ export function EnclosPanel() {
   /* ---------- rappels push (#16) : jamais en démo ---------- */
   const annulerRappel = useCallback(
     async (e: Enclos) => {
-      if (!e.rappel || !push.subscription) return;
+      if (!e.rappel?.messageId || !push.subscription) return;
       await annulerApi(e.rappel.messageId, push.subscription.endpoint);
     },
     [push.subscription],
@@ -95,7 +95,7 @@ export function EnclosPanel() {
         return null;
       }
       /* Ressaisi pendant l'appel (ou passage en démo) : ce rappel est déjà périmé, on l'annule. */
-      if (magasinActif().getState().demo || !magasinActif().getState().setRappel(i, e.saisieLe, { messageId: r.data.messageId, at: r.data.at })) {
+      if (magasinActif().getState().demo || !magasinActif().getState().setRappel(i, e.saisieLe, { methode: "push", messageId: r.data.messageId, at: r.data.at })) {
         void annulerApi(r.data.messageId, sub.endpoint);
         return null;
       }
@@ -116,7 +116,7 @@ export function EnclosPanel() {
   /* Replanifie un rappel déjà posé (objectif ou marge changés : l'heure d'envoi change). */
   const replanifier = (i: number) => {
     const e = magasinActif().getState().enclos[i];
-    if (demo || !e?.rappel || !magasinActif().getState().setRappel(i, e.saisieLe, null)) return;
+    if (demo || e?.rappel?.methode !== "push" || !magasinActif().getState().setRappel(i, e.saisieLe, null)) return;
     void annulerRappel(e);
     void planifierRappel(i, { ...e, rappel: null }, e.objectif);
   };
@@ -136,14 +136,23 @@ export function EnclosPanel() {
   const vider = (i: number) => sauver(i, enclosSchema.parse({ nom: enclos[i].nom }));
 
   const changerObjectif = (i: number, o: Objectif) => {
-    if (magasinActif().getState().setObjectif(i, o)) replanifier(i);
+    const avant = vueEnclos(enclos[i], i, maintenant).retour?.quandMs;
+    if (!magasinActif().getState().setObjectif(i, o)) return;
+    replanifier(i);
+    /* l'heure de retour a changé : le rappel d'agenda programmé ne vaut plus (l'ancien événement est à supprimer à la main) */
+    const e = magasinActif().getState().enclos[i];
+    if (e.rappel && e.rappel.methode !== "push" && vueEnclos(e, i, maintenant).retour?.quandMs !== avant)
+      magasinActif().getState().setRappel(i, e.saisieLe, null);
   };
 
   const changerMarge = (min: number) => {
     if (!magasinActif().getState().setMargeRappel(min)) return;
     magasinActif()
       .getState()
-      .enclos.forEach((e, i) => e.rappel && replanifier(i));
+      .enclos.forEach((e, i) => {
+        if (e.rappel?.methode === "push") replanifier(i);
+        else if (e.rappel) magasinActif().getState().setRappel(i, e.saisieLe, null); /* l'heure du rappel change */
+      });
   };
 
   const activerPush = async (i: number) => {
@@ -154,9 +163,11 @@ export function EnclosPanel() {
   /* Choisir une autre méthode que le push annule la notification déjà planifiée pour cet enclos. */
   const choisirMethode = (i: number, m: MethodeRappel) => {
     magasinActif().getState().setMethodeRappel(m);
-    if (m !== "push" && enclos[i].rappel) annulerPush(i);
+    if (m !== "push" && enclos[i].rappel?.methode === "push") annulerRappelEnclos(i);
   };
-  const annulerPush = (i: number) => {
+  /* Annule le rappel de l'enclos : le push est annulé côté serveur ; un événement d'agenda reste à supprimer
+     à la main (l'enclos s'en souvient dans `ancienRappel`). */
+  const annulerRappelEnclos = (i: number) => {
     const e = enclos[i];
     if (magasinActif().getState().setRappel(i, e.saisieLe, null)) void annulerRappel(e);
   };
@@ -205,7 +216,8 @@ export function EnclosPanel() {
                 note: notes[v.index] ?? null,
                 onMethode: (m) => choisirMethode(v.index, m),
                 onPush: () => activerPush(v.index),
-                onAnnulerPush: () => annulerPush(v.index),
+                onAnnuler: () => annulerRappelEnclos(v.index),
+                onProgramme: (m, at) => magasinActif().getState().setRappel(v.index, enclos[v.index].saisieLe, { methode: m, at }),
                 onPermission: setPermission,
               }}
               onSave={(e) => sauver(v.index, e)}
