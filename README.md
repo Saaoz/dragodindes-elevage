@@ -62,9 +62,13 @@ installé par `npm install` via le script `prepare`). Playwright utilise Chromiu
   Actions ; les tests sont lancés en local (hook `pre-push`). Les secrets (#16) sont dans les variables d'environnement Vercel.
 - **Installer sur téléphone** : Android (Chrome) : bouton « Installer l'appli » de la page d'accueil, ou menu → Installer
   l'application. iPhone : Safari → Partager → Sur l'écran d'accueil (obligatoire pour les notifications push sur iOS).
-- **Hors ligne** : `public/sw.js` (service worker écrit à la main) met en cache l'app shell et les assets ; navigation
-  réseau d'abord avec repli sur le cache. Changer `VERSION` dans `sw.js` pour purger les anciens caches. Il contient aussi
-  les gestionnaires `push` / `notificationclick` des rappels (#16).
+- **Hors ligne** : le service worker (écrit à la main dans `scripts/sw.template.js`) met en cache l'app shell et les
+  assets ; navigation réseau d'abord avec repli sur le cache de la version courante. **Sa version est automatique** :
+  `npm run build` (hook `prebuild`, `scripts/build-sw.mjs`) génère `public/sw.js` (non versionné) en y injectant
+  `VERCEL_GIT_COMMIT_SHA` sur Vercel, sinon un horodatage (ou `SW_VERSION` si définie). Aucun incrément manuel : à chaque
+  déploiement le navigateur détecte un `sw.js` différent, le nouveau worker s'active tout de suite (`skipWaiting` +
+  `clients.claim`) et supprime tous les caches `elevage-*` d'une autre version ; l'appli vérifie aussi les mises à jour
+  quand on revient dessus. Il contient aussi les gestionnaires `push` / `notificationclick` des rappels (#16).
 - **Tester en local** : le service worker n'est enregistré qu'en production, donc `npm run build && npm run start`
   (http://localhost:3000), puis DevTools → Application. `npm run test:e2e` vérifie manifest, service worker et rechargement
   hors ligne. Les icônes (`public/icons`) sont générées par `node scripts/generate-icons.mjs`.

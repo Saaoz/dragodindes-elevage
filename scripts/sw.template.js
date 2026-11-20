@@ -1,10 +1,9 @@
 /* Service worker écrit à la main : app shell hors ligne + notifications push (#16).
-   Changer VERSION invalide les anciens caches. */
-const VERSION = "v3";
-const SHELL_CACHE = `elevage-shell-${VERSION}`;
-const ASSET_CACHE = `elevage-assets-${VERSION}`;
-const PAGE_CACHE = `elevage-pages-${VERSION}`;
-const CURRENT = [SHELL_CACHE, ASSET_CACHE, PAGE_CACHE];
+   SOURCE : ce fichier est un modèle. `scripts/build-sw.mjs` (hook `prebuild`) remplace le marqueur de version
+   ci-dessous et génère public/sw.js (non versionné) : la version change donc à chaque build (#55).
+   Un seul cache par version ; tout cache `elevage-*` d'une autre version est supprimé à l'activation. */
+const VERSION = "__SW_VERSION__";
+const CURRENT = `elevage-${VERSION}`;
 // Pages de l'appli : leur HTML est mis en cache, et les assets hashés qu'elles référencent aussi.
 const PAGES = ["/", "/enclos", "/rentabilite", "/guide"];
 const SHELL_URLS = [
@@ -18,7 +17,7 @@ const SHELL_URLS = [
 self.addEventListener("install", (event) => {
   event.waitUntil(
     (async () => {
-      const shell = await caches.open(SHELL_CACHE);
+      const shell = await caches.open(CURRENT);
       await Promise.all(
         SHELL_URLS.map(async (url) => {
           try {
@@ -29,7 +28,7 @@ self.addEventListener("install", (event) => {
             if (PAGES.includes(url)) {
               const html = await res.text();
               const assets = new Set(html.match(/\/_next\/static\/[^"'\\)\s]+/g) || []);
-              const store = await caches.open(ASSET_CACHE);
+              const store = shell;
               await Promise.all(
                 [...assets].map((a) =>
                   fetch(a)
@@ -54,7 +53,7 @@ self.addEventListener("activate", (event) => {
       const names = await caches.keys();
       await Promise.all(
         names
-          .filter((n) => n.startsWith("elevage-") && !CURRENT.includes(n))
+          .filter((n) => n.startsWith("elevage-") && n !== CURRENT)
           .map((n) => caches.delete(n)),
       );
       await self.clients.claim();
@@ -73,14 +72,15 @@ self.addEventListener("fetch", (event) => {
   if (req.mode === "navigate") {
     event.respondWith(
       (async () => {
+        const cache = await caches.open(CURRENT);
         try {
           const res = await fetch(req);
-          if (res.ok) (await caches.open(PAGE_CACHE)).put(req, res.clone());
+          if (res.ok) event.waitUntil(cache.put(req, res.clone()));
           return res;
         } catch {
           return (
-            (await caches.match(req, { ignoreSearch: true })) ||
-            (await caches.match("/")) ||
+            (await cache.match(req, { ignoreSearch: true })) ||
+            (await cache.match("/")) ||
             new Response("Hors ligne", {
               status: 503,
               headers: { "Content-Type": "text/plain; charset=utf-8" },
@@ -101,11 +101,12 @@ self.addEventListener("fetch", (event) => {
   if (isStatic) {
     event.respondWith(
       (async () => {
-        const cached = await caches.match(req);
+        const cache = await caches.open(CURRENT);
+        const cached = await cache.match(req);
         if (cached) return cached;
         try {
           const res = await fetch(req);
-          if (res.ok) (await caches.open(ASSET_CACHE)).put(req, res.clone());
+          if (res.ok) event.waitUntil(cache.put(req, res.clone()));
           return res;
         } catch {
           return Response.error();
