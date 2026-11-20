@@ -7,3 +7,16 @@ Thumbs.db
 .claude/settings.local.json
 # Exports de prix personnels
 dragodindes-prix-*.json
+node_modules
+.next
+out
+build
+coverage
+next-env.d.ts
+*.tsbuildinfo
+playwright-report
+test-results
+.env*
+!.env.example
+.vercel
+public/legacy/
