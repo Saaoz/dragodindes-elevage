@@ -158,7 +158,7 @@ export interface Remplissage {
   ecart: number;
   /** Écart maximal compatible avec l'objectif (au-delà : regrouper). */
   ecartMax: number;
-  /** Proposition de regroupement (indices des montures), seulement si `tropEcartees`. */
+  /** Proposition de regroupement (indices des montures), seulement si `tropEcartees` (null au retour, #45). */
   groupes: number[][] | null;
   /** Message prêt à afficher, en français (conseil + avertissement d'excédent). */
   message: string;
@@ -486,6 +486,65 @@ function calculerRemplissage(
     ecartMax,
     groupes,
     message,
+    conseil,
+  };
+}
+
+/* ---------- conseil à l'heure de retour (#33, #45) ---------- */
+
+const nomSens = (sens: SensJauge): string => (sens === "+" ? "Sérénité +" : "Sérénité −");
+const memeZone = (a: ZoneSerenite, b: ZoneSerenite): boolean => a.min === b.min && a.max === b.max;
+
+/**
+ * Remplissage conseillé à l'heure de retour, à partir de l'état des montures À CET INSTANT.
+ *
+ * - Montures stables (aucune jauge active, ou jauge vide) : comme avant (#33), la jauge est supposée
+ *   remplacée, calcul « jauge vide » (`dejaAtteint` n'est possible que dans ce cas).
+ * - Jauge encore active ET monture la plus avancée au bord de la zone (ou à ±5 000 sans zone) dans le
+ *   sens de la jauge (#45) : si le joueur ne fait rien, elle sort (ou gaspille). Le conseil passe sur la
+ *   jauge OPPOSÉE et donne le nombre de points (> 0) calculé comme `serenityPlan` pour cette jauge :
+ *   avec zone, recentrer le groupe dans la zone ; sans zone, le maximum avant qu'une monture atteigne
+ *   l'autre borne. Impossible (groupe aussi large que la zone, ou montures aux deux bornes) : séparer.
+ */
+export function remplissageAuRetour(etat: EtatSerenite, zone?: ZoneSerenite, p: ParamsJauge = {}): Remplissage {
+  const serenites = etat.serenites.map(bornerSerenite);
+  const z = zone
+    ? { min: bornerSerenite(Math.min(zone.min, zone.max)), max: bornerSerenite(Math.max(zone.min, zone.max)) }
+    : undefined;
+  const sens = etat.sens;
+  const niveau = sens === null ? 0 : bornerNiveau(etat.niveauJauge, p);
+  const stable = calculerRemplissage(serenites, null, 0, undefined, z, p);
+  if (sens === null || niveau <= 0 || !serenites.length) return stable;
+
+  const s = signe(sens);
+  const limite = z ? (s > 0 ? z.max : -z.min) : SERENITE_MAX;
+  if (Math.max(...serenites.map((v) => s * v)) < limite - 1e-6) return stable;
+
+  /* Au bord dans le sens de la jauge active : la jauge opposée, partie de zéro. */
+  const autre: SensJauge = sens === "+" ? "-" : "+";
+  const r = calculerRemplissage(serenites, autre, 0, undefined, z, p);
+  const nomZone = z && memeZone(z, ZONE_MATURITE) ? "la zone Maturité" : "la zone voulue";
+  if (r.statut === "ok" && Math.round(r.points) >= 1) {
+    const conseil = z
+      ? `Passe sur la jauge ${nomSens(autre)} et mets ${fmt(r.points)} points au total pour recentrer tes montures dans ${nomZone}.`
+      : `Passe sur la jauge ${nomSens(autre)} et mets ${fmt(r.points)} points au total : c'est le maximum avant qu'une monture atteigne ${autre === "+" ? "+" : "−"}${fmt(SERENITE_MAX)}.`;
+    return { ...r, message: conseil, conseil };
+  }
+  /* Aucune des deux jauges ne garde tout le groupe : il faut le séparer. */
+  const largeur = z ? z.max - z.min : 2 * SERENITE_MAX;
+  const conseil = z
+    ? `Tes montures sont trop écartées pour être recentrées ensemble dans ${nomZone} (${fmt(r.ecart)} d'écart, il faut moins de ${fmt(largeur)}) : sépare-les dans des enclos différents.`
+    : `Une monture est à +${fmt(SERENITE_MAX)} et une autre à −${fmt(SERENITE_MAX)} : quelle que soit la jauge, des points sont gaspillés. Sépare-les dans des enclos différents.`;
+  return {
+    ...r,
+    statut: "tropEcartees",
+    atteignable: false,
+    sensConseille: null,
+    points: 0,
+    aAjouter: 0,
+    duree: 0,
+    groupes: null,
+    message: conseil,
     conseil,
   };
 }

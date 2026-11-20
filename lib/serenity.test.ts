@@ -7,6 +7,7 @@ import {
   etatEnclos,
   planEnclos,
   pointsConsommes,
+  remplissageAuRetour,
   serenityPlan,
   SERENITE_MAX,
   tempsPourConsommer,
@@ -340,6 +341,96 @@ describe("propriétés", () => {
         for (const x of fin) {
           expect(x).toBeGreaterThanOrEqual(ZONE_MATURITE.min);
           expect(x).toBeLessThanOrEqual(ZONE_MATURITE.max);
+        }
+      }
+  });
+});
+
+describe("remplissageAuRetour : conseil au bord de la zone (#45)", () => {
+  const Z = ZONE_MATURITE;
+  const ss = (t: string) => t.replace(/[  ]/g, " ");
+  const appliquer = (serenites: number[], sens: SensJauge, points: number) =>
+    serenityPlan({ serenites, sens, niveauJauge: points }).final;
+
+  it("Maturité, jauge + encore active, monture à +2 000 : Sérénité − avec N > 0, groupe recentré", () => {
+    const r = remplissageAuRetour({ serenites: [0, 2000], sens: "+", niveauJauge: 49000 }, Z);
+    expect(r).toMatchObject({ statut: "ok", sensConseille: "-", points: 1000, aAjouter: 1000, excedent: 0 });
+    expect(ss(r.conseil)).toBe(
+      "Passe sur la jauge Sérénité − et mets 1 000 points au total pour recentrer tes montures dans la zone Maturité.",
+    );
+    expect(appliquer([0, 2000], "-", r.points)).toEqual([-1000, 1000]);
+  });
+
+  it("Maturité, jauge − encore active, monture à −2 000 : Sérénité + avec N > 0", () => {
+    const r = remplissageAuRetour({ serenites: [500, -2000], sens: "-", niveauJauge: 10000 }, Z);
+    expect(r).toMatchObject({ statut: "ok", sensConseille: "+", points: 750 });
+    expect(ss(r.conseil)).toMatch(/^Passe sur la jauge Sérénité \+ et mets 750 points au total pour recentrer/);
+    expect(appliquer([500, -2000], "+", r.points)).toEqual([1250, -1250]);
+  });
+
+  it("Maturité, groupe aussi large que la zone (ou plus) : séparer, jamais « déjà atteint »", () => {
+    for (const serenites of [[-2000, 2000], [-3000, 2000]]) {
+      const r = remplissageAuRetour({ serenites, sens: "+", niveauJauge: 49000 }, Z);
+      expect(r).toMatchObject({ statut: "tropEcartees", atteignable: false, sensConseille: null, points: 0 });
+      expect(r.conseil).toMatch(/sépare-les/);
+      expect(r.conseil).not.toMatch(/déjà atteint/);
+    }
+    expect(ss(remplissageAuRetour({ serenites: [-2000, 2000], sens: "+", niveauJauge: 1 }, Z).conseil)).toBe(
+      "Tes montures sont trop écartées pour être recentrées ensemble dans la zone Maturité (4 000 d'écart, il faut moins de 4 000) : sépare-les dans des enclos différents.",
+    );
+  });
+
+  it("monture déjà au-delà de la zone, poussée jusqu'à +5 000 : Sérénité −, retour au centre", () => {
+    const r = remplissageAuRetour({ serenites: [5000], sens: "+", niveauJauge: 100000 }, Z);
+    expect(r).toMatchObject({ statut: "ok", sensConseille: "-", points: 5000 });
+  });
+
+  it("sans objectif (±5 000), monture à +5 000 et jauge active : Sérénité −, le maximum sans gaspiller", () => {
+    const r = remplissageAuRetour({ serenites: [2000, 5000], sens: "+", niveauJauge: 192000 });
+    expect(r).toMatchObject({ statut: "ok", sensConseille: "-", points: 7000 });
+    expect(ss(r.conseil)).toBe(
+      "Passe sur la jauge Sérénité − et mets 7 000 points au total : c'est le maximum avant qu'une monture atteigne −5 000.",
+    );
+    /* cohérent avec serenityPlan pour la jauge − partie de zéro */
+    expect(r.points).toBe(serenityPlan({ serenites: [2000, 5000], sens: "-", niveauJauge: 0 }).aRemplir.points);
+    expect(appliquer([2000, 5000], "-", r.points)).toEqual([-5000, -2000]);
+  });
+
+  it("sans objectif, montures aux deux bornes : séparer", () => {
+    const r = remplissageAuRetour({ serenites: [-5000, 5000], sens: "+", niveauJauge: 1000 });
+    expect(r.statut).toBe("tropEcartees");
+    expect(ss(r.conseil)).toMatch(/^Une monture est à \+5 000 et une autre à −5 000 .*Sépare-les/);
+  });
+
+  it("montures stables (aucune jauge, ou jauge vide) : calcul « jauge vide » inchangé, « déjà atteint » possible", () => {
+    for (const etat of [
+      { serenites: [-2000, 2000], sens: null, niveauJauge: 0 },
+      { serenites: [-2000, 2000], sens: "+" as const, niveauJauge: 0 },
+    ]) {
+      const r = remplissageAuRetour(etat, Z);
+      expect(r).toEqual(serenityPlan({ serenites: etat.serenites, sens: null, niveauJauge: 0, zone: Z }).aRemplir);
+      expect(r.statut).toBe("dejaAtteint");
+    }
+  });
+
+  it("jauge active mais monture loin du bord : calcul « jauge vide » inchangé", () => {
+    const r = remplissageAuRetour({ serenites: [500, 1500], sens: "+", niveauJauge: 1000 }, Z);
+    expect(r).toEqual(serenityPlan({ serenites: [500, 1500], sens: null, niveauJauge: 0, zone: Z }).aRemplir);
+  });
+
+  it("au bord avec jauge active : jamais « déjà atteint », et un conseil « ok » garde tout le groupe dans la zone", () => {
+    for (const sens of ["+", "-"] as SensJauge[])
+      for (const autre of [-5000, -3000, -2000, -1999, -1000, 0, 1000, 1999, 2000]) {
+        const bord = sens === "+" ? 2000 : -2000;
+        const serenites = [bord, sens === "+" ? autre : -autre];
+        const r = remplissageAuRetour({ serenites, sens, niveauJauge: 5000 }, Z);
+        expect(r.statut).not.toBe("dejaAtteint");
+        if (r.statut !== "ok") continue;
+        expect(r.points).toBeGreaterThan(0);
+        expect(r.sensConseille).toBe(sens === "+" ? "-" : "+");
+        for (const x of appliquer(serenites, r.sensConseille!, r.points)) {
+          expect(x).toBeGreaterThanOrEqual(Z.min);
+          expect(x).toBeLessThanOrEqual(Z.max);
         }
       }
   });
