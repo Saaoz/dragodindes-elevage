@@ -1,17 +1,18 @@
 /* Service worker écrit à la main : app shell hors ligne + notifications push (#16).
    Changer VERSION invalide les anciens caches. */
-const VERSION = "v2";
+const VERSION = "v3";
 const SHELL_CACHE = `elevage-shell-${VERSION}`;
 const ASSET_CACHE = `elevage-assets-${VERSION}`;
 const PAGE_CACHE = `elevage-pages-${VERSION}`;
 const CURRENT = [SHELL_CACHE, ASSET_CACHE, PAGE_CACHE];
+// Pages de l'appli : leur HTML est mis en cache, et les assets hashés qu'elles référencent aussi.
+const PAGES = ["/", "/enclos", "/rentabilite", "/guide"];
 const SHELL_URLS = [
-  "/",
+  ...PAGES,
   "/manifest.webmanifest",
   "/icons/icon-192.png",
   "/icons/icon-512.png",
   "/icons/apple-touch-icon.png",
-  "/legacy/index.html",
 ];
 
 self.addEventListener("install", (event) => {
@@ -24,8 +25,8 @@ self.addEventListener("install", (event) => {
             const res = await fetch(url, { cache: "reload" });
             if (!res.ok) return;
             await shell.put(url, res.clone());
-            // Pré-cache les assets hashés référencés par la page d'accueil.
-            if (url === "/") {
+            // Pré-cache les assets hashés référencés par chaque page.
+            if (PAGES.includes(url)) {
               const html = await res.text();
               const assets = new Set(html.match(/\/_next\/static\/[^"'\\)\s]+/g) || []);
               const store = await caches.open(ASSET_CACHE);
@@ -95,7 +96,6 @@ self.addEventListener("fetch", (event) => {
   const isStatic =
     url.pathname.startsWith("/_next/static/") ||
     url.pathname.startsWith("/icons/") ||
-    url.pathname.startsWith("/legacy/") ||
     url.pathname === "/manifest.webmanifest" ||
     /\.(?:js|css|woff2?|png|jpg|svg|ico)$/.test(url.pathname);
   if (isStatic) {

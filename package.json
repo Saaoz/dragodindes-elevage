@@ -4,9 +4,7 @@
   "private": true,
   "license": "MIT",
   "scripts": {
-    "predev": "node scripts/copy-legacy.mjs",
     "dev": "next dev",
-    "prebuild": "node scripts/copy-legacy.mjs",
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",

@@ -1,10 +1,11 @@
 import type { MetadataRoute } from "next";
+import { VERSION_JEU } from "@/lib/data";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Élevage de dragodindes",
     short_name: "Dragodindes",
-    description: "Outil de fan non officiel pour l'élevage de dragodindes (Dofus 3.5).",
+    description: `Outil de fan non officiel pour l'élevage de dragodindes (DOFUS ${VERSION_JEU}).`,
     lang: "fr",
     start_url: "/",
     scope: "/",

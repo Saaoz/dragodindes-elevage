@@ -72,6 +72,15 @@ export type PricesState = z.infer<typeof pricesSchema>;
 /* ---------- enclos (#2) : schéma seulement, pas d'UI ---------- */
 export const AUTRES_JAUGES = ["Endurance", "Maturité", "Amour", "Expérience de monture"] as const;
 
+/* Objectif de sérénité d'un enclos (#4 : enregistré avec l'enclos) :
+   « aucun » = éviter ±5 000, « maturite » = rester entre −2 000 et +2 000. */
+export const OBJECTIFS = ["aucun", "maturite"] as const;
+export type Objectif = (typeof OBJECTIFS)[number];
+
+/* Marge des rappels (agenda, notification) : prévenir N minutes AVANT l'heure de retour. */
+export const MARGES_RAPPEL_MIN = [0, 5, 10, 15, 30] as const;
+export const MARGE_RAPPEL_DEFAUT_MIN = 5;
+
 export const monture = z.object({
   nom: z.string().max(60).default(""),
   /* sérénité propre à chaque monture : -5 000 à +5 000 */
@@ -98,11 +107,25 @@ export const enclosSchema = z.object({
   /* Rappel push planifié sur CET appareil (#16) : identifiant du message QStash pour l'annuler.
      Propre à l'appareil : jamais exporté, remis à null à l'import. */
   rappel: rappelPushSchema.nullable().default(null),
+  /* Objectif choisi pour cet enclos ; absent (anciennes données) ou illisible : « aucun »,
+     sans jamais faire perdre l'enclos. */
+  objectif: z.enum(OBJECTIFS).catch("aucun"),
 });
 export type Enclos = z.infer<typeof enclosSchema>;
 
 export const defaultEnclos = (): Enclos[] =>
   Array.from({ length: NB_ENCLOS }, (_, i) => enclosSchema.parse({ nom: `Enclos ${i + 1}` }));
+
+/* ---------- réglages de l'appli (#4) ---------- */
+export const reglagesSchema = z.object({
+  /* minutes de marge des rappels ; une valeur hors liste (ancienne / corrompue) retombe sur 5 */
+  margeRappelMin: z
+    .number()
+    .int()
+    .refine((n) => (MARGES_RAPPEL_MIN as readonly number[]).includes(n))
+    .catch(MARGE_RAPPEL_DEFAUT_MIN),
+});
+export type Reglages = z.infer<typeof reglagesSchema>;
 
 /* ---------- état complet persisté / exporté ---------- */
 export const appDataSchema = z.object({
@@ -112,6 +135,7 @@ export const appDataSchema = z.object({
   calc: calcSchema.prefault({}),
   prices: pricesSchema.prefault({}),
   enclos: z.array(enclosSchema).length(NB_ENCLOS).prefault(defaultEnclos()),
+  reglages: reglagesSchema.prefault({ margeRappelMin: MARGE_RAPPEL_DEFAUT_MIN }),
 });
 export type AppData = z.infer<typeof appDataSchema>;
 export const defaultAppData = (): AppData => appDataSchema.parse({});

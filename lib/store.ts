@@ -10,14 +10,14 @@ import { create, type StateCreator } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
 import { parseKamas, type Prices } from "./calc";
 import {
-  APP_ID, EXPORT_SCHEMA_VERSION, PRICE_KEYS, SERVER_IDS, appDataSchema, calcSchema, defaultAppData,
-  priceEntrySchema, rappelPushSchema, type AppData, type CalcState, type Enclos, type PriceKey, type PricesState,
-  type RappelPush, type ServerId, type ServerPrices,
+  APP_ID, EXPORT_SCHEMA_VERSION, NB_ENCLOS, OBJECTIFS, PRICE_KEYS, SERVER_IDS, appDataSchema, calcSchema,
+  defaultAppData, enclosSchema, priceEntrySchema, rappelPushSchema, reglagesSchema, type AppData, type CalcState,
+  type Enclos, type Objectif, type PriceKey, type PricesState, type RappelPush, type ServerId, type ServerPrices,
 } from "./schema";
 
 /* ---------- clés localStorage et versions ----------
    Clé v3 propre. Les clés v2/v1 sont LUES (jamais modifiées) pour migrer automatiquement les
-   données de la v2 si elle a tourné sur la même origine (/legacy est servi par l'appli). */
+   données de la v2 si elle a tourné sur la même origine (elle était servie sous /legacy jusqu'à #4). */
 export const STORAGE_KEY = "dd-elevage-v3";
 export const STORAGE_VERSION = 5; // 4 : Optimakina par génération (opti2..opti10) ; 5 : rappel push par enclos (#16)
 export const LEGACY_V2_KEY = "dd-elevage-v2";
@@ -145,11 +145,14 @@ export function sanitize(raw: unknown): AppData {
     calc: calc as CalcState,
     prices: prices as PricesState,
     enclos: pick(appDataSchema.shape.enclos, o.enclos, d.enclos),
+    reglages: pick(appDataSchema.shape.reglages, o.reglages, d.reglages),
   };
 }
 
 /* ---------- import STRICT d'un export JSON : tout ou rien, jamais de corruption ---------- */
-export type ParsedImport = { ok: true; data: AppData; hasEnclos: boolean } | { ok: false; msg: string };
+export type ParsedImport =
+  | { ok: true; data: AppData; hasEnclos: boolean; hasReglages: boolean }
+  | { ok: false; msg: string };
 
 export function parseExport(text: string): ParsedImport {
   let obj: unknown;
@@ -186,6 +189,7 @@ export function parseExport(text: string): ParsedImport {
     ok: true,
     data: { ...r.data, enclos: sansRappels(r.data.enclos) },
     hasEnclos: isObj(data) && "enclos" in data,
+    hasReglages: isObj(data) && "reglages" in data,
   };
 }
 
@@ -271,12 +275,19 @@ export interface Actions {
   /* Enregistre (ou efface avec null) le rappel push de l'enclos i, seulement si l'enclos n'a pas été
      ressaisi entre-temps (même `saisieLe`) ; false sinon, ou en lecture seule (version future). */
   setRappel: (i: number, saisieLe: number | null, rappel: RappelPush | null) => boolean;
+  /* Remplace l'enclos i (validé ; le rappel push est remis à null : c'est l'appelant qui le replanifie). */
+  setEnclos: (i: number, e: Enclos) => boolean;
+  /* Objectif de l'enclos i (#4 : enregistré, n'est plus perdu au rechargement). */
+  setObjectif: (i: number, o: Objectif) => boolean;
+  /* Marge des rappels en minutes (0, 5, 10, 15 ou 30). */
+  setMargeRappel: (min: number) => boolean;
   oldestAge: (server: ServerId) => number | null;
 }
 export type AppStore = AppData & Actions;
 
 const pickData = (s: AppData): AppData => ({
   server: s.server, theme: s.theme, matB: s.matB, calc: s.calc, prices: s.prices, enclos: s.enclos,
+  reglages: s.reglages,
 });
 
 const clonePrices = (p: ServerPrices | undefined): ServerPrices => structuredClone(p ?? {});
@@ -364,7 +375,11 @@ function makeCreator(demo: boolean, initial: () => AppData): StateCreator<AppSto
       if (demo) return fail("Indisponible en mode démo.");
       const r = parseExport(text);
       if (!r.ok) return fail(r.msg);
-      set({ ...r.data, enclos: r.hasEnclos ? r.data.enclos : get().enclos });
+      set({
+        ...r.data,
+        enclos: r.hasEnclos ? r.data.enclos : get().enclos,
+        reglages: r.hasReglages ? r.data.reglages : get().reglages,
+      });
       return { ok: true, msg: "Import terminé." };
     },
     ageDays: (server, key) => ageDays(get().prices, server, key),
@@ -375,6 +390,25 @@ function makeCreator(demo: boolean, initial: () => AppData): StateCreator<AppSto
       const r = rappelPushSchema.nullable().safeParse(rappel);
       if (!r.success) return false;
       set({ enclos: get().enclos.map((x, k) => (k === i ? { ...x, rappel: r.data } : x)) });
+      return true;
+    },
+    setEnclos: (i, e) => {
+      if (!Number.isInteger(i) || i < 0 || i >= NB_ENCLOS) return false;
+      const r = enclosSchema.safeParse({ ...e, rappel: null });
+      if (!r.success) return false;
+      set({ enclos: get().enclos.map((x, k) => (k === i ? r.data : x)) });
+      return true;
+    },
+    setObjectif: (i, o) => {
+      if (!(OBJECTIFS as readonly string[]).includes(o) || !get().enclos[i]) return false;
+      set({ enclos: get().enclos.map((x, k) => (k === i ? { ...x, objectif: o } : x)) });
+      return true;
+    },
+    setMargeRappel: (min) => {
+      const r = reglagesSchema.shape.margeRappelMin.safeParse(min);
+      /* .catch() du schéma accepte tout : on vérifie que la valeur est bien celle demandée */
+      if (!r.success || r.data !== min) return false;
+      set({ reglages: { ...get().reglages, margeRappelMin: r.data } });
       return true;
     },
     oldestAge: (server) => oldestAge(get().prices, server),
@@ -470,10 +504,32 @@ export const DEMO_VALUES: Record<PriceKey, number> = {
   opti9: 150000, opti10: 150000,
 };
 
+/* Enclos fictifs de la démo : un enclos qui va gaspiller sa jauge, un en Maturité, un sans jauge de sérénité. */
+function demoEnclos(now: number): Enclos[] {
+  const min = 60_000;
+  const avant = (minutes: number) => Math.max(0, now - minutes * min);
+  const d = defaultAppData().enclos;
+  const m = (...s: number[]) => s.map((serenite) => ({ nom: "", serenite }));
+  d[0] = enclosSchema.parse({
+    nom: "Enclos 1 (démo)", montures: m(-3200, -2900, -2600, -2400), jaugeSerenite: "+", niveauSerenite: 150000,
+    autreJauge: "Endurance", niveauAutre: 90000, saisieLe: avant(20),
+  });
+  d[1] = enclosSchema.parse({
+    nom: "Enclos 2 (démo)", montures: m(1500, 900, 400), jaugeSerenite: "-", niveauSerenite: 60000,
+    autreJauge: "Amour", niveauAutre: 120000, saisieLe: avant(90), objectif: "maturite",
+  });
+  d[2] = enclosSchema.parse({
+    nom: "Enclos 3 (démo)", montures: m(0, 200), autreJauge: "Expérience de monture", niveauAutre: 180000,
+    saisieLe: avant(45),
+  });
+  return d;
+}
+
 export function demoData(now = Date.now()): AppData {
   const d = defaultAppData();
   const sp = Object.fromEntries(PRICE_KEYS.map((k) => [k, { v: DEMO_VALUES[k], t: now }])) as ServerPrices;
   d.prices = Object.fromEntries(SERVER_IDS.map((id) => [id, structuredClone(sp)])) as PricesState;
+  d.enclos = demoEnclos(now);
   return d;
 }
 
