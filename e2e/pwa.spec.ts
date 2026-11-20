@@ -1,3 +1,5 @@
+import { createServer, type Server } from "node:http";
+import type { AddressInfo } from "node:net";
 import { expect, test } from "@playwright/test";
 
 test("le manifest est servi et valide", async ({ request }) => {
@@ -31,7 +33,7 @@ test("le service worker s'enregistre et la page recharge hors ligne", async ({ p
   await page.evaluate(() => navigator.serviceWorker.ready);
   await page.waitForFunction(() => !!navigator.serviceWorker.controller);
   const keys = await page.evaluate(() => caches.keys());
-  expect(keys.some((k) => k.startsWith("elevage-shell-"))).toBe(true);
+  expect(keys.some((k) => k.startsWith("elevage-"))).toBe(true);
 
   await context.setOffline(true);
   await page.reload();
@@ -75,4 +77,64 @@ test("le service worker transforme un push en notification (#16)", async ({ page
   });
   /* une URL externe est ramenée à /enclos */
   expect(affiche[1].options.data).toEqual({ url: "/enclos" });
+});
+
+/* #55 : deux « builds » du service worker. Un petit proxy local sert l'appli telle quelle, mais /sw.js avec la VERSION
+   de notre choix (Playwright ne sait pas intercepter le téléchargement du script d'un service worker). */
+test("une nouvelle version du service worker remplace l'ancienne : un seul cache, page à jour hors ligne (#55)", async ({
+  page,
+  context,
+  baseURL,
+}) => {
+  const source = await (await fetch(`${baseURL}/sw.js`)).text();
+  expect(source).toMatch(/const VERSION = "[^"]+";/);
+  let version = "e2e-a";
+  const proxy: Server = createServer(async (req, res) => {
+    try {
+      const amont = await fetch(`${baseURL}${req.url}`, { redirect: "manual" });
+      const entetes: Record<string, string> = {};
+      amont.headers.forEach((v, k) => {
+        if (!["content-encoding", "content-length", "transfer-encoding", "connection"].includes(k)) entetes[k] = v;
+      });
+      const estSw = new URL(req.url ?? "/", "http://x").pathname === "/sw.js";
+      const corps = estSw
+        ? Buffer.from(source.replace(/const VERSION = "[^"]+";/, `const VERSION = "${version}";`))
+        : Buffer.from(await amont.arrayBuffer());
+      res.writeHead(amont.status, entetes).end(corps);
+    } catch {
+      res.writeHead(502).end();
+    }
+  });
+  await new Promise<void>((ok) => proxy.listen(0, "127.0.0.1", ok));
+  try {
+    const origine = `http://localhost:${(proxy.address() as AddressInfo).port}`;
+    const cles = () => page.evaluate(() => globalThis.caches.keys());
+
+    await page.goto(`${origine}/`);
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.waitForFunction(() => !!navigator.serviceWorker.controller);
+    await expect.poll(cles).toEqual(["elevage-e2e-a"]);
+
+    // Un vieux cache périmé (autre nom) et une copie périmée de « / » dans le cache de l'ancienne version.
+    await page.evaluate(async () => {
+      const perime = () => new Response("<h1>VIEUX</h1>", { headers: { "Content-Type": "text/html" } });
+      await (await caches.open("elevage-ancien")).put("/", perime());
+      await (await caches.open("elevage-e2e-a")).put("/", perime());
+    });
+
+    version = "e2e-b";
+    await page.evaluate(async () => {
+      const reg = await navigator.serviceWorker.getRegistration();
+      await reg?.update();
+    });
+    await expect.poll(cles, { timeout: 15_000 }).toEqual(["elevage-e2e-b"]);
+
+    await context.setOffline(true);
+    await page.reload();
+    await expect(page.getByRole("heading", { name: "Élevage de dragodindes", level: 1 })).toBeVisible();
+    await expect(page.getByText("VIEUX")).toHaveCount(0);
+    await context.setOffline(false);
+  } finally {
+    proxy.close();
+  }
 });
