@@ -87,10 +87,10 @@ function serenity() {
   if (v <= -1) g.push("Endurance");
   if (v >= -2000 && v <= 2000) g.push("Maturité");
   if (v >= 0) g.push("Amour");
-  const conseil = v <= -2001 ? "Active le <b>Caresseur</b> pour remonter la sérénité."
-    : v <= -1 ? "Active <b>Foudroyeur + Abreuvoir</b> (Endurance + Maturité)."
-    : v <= 2000 ? "Active <b>Dragofesse + Abreuvoir</b> (Amour + Maturité)."
-    : "Active le <b>Baffeur</b> pour faire baisser la sérénité.";
+  const conseil = v <= -2001 ? "Active <b>Sérénité +</b> pour remonter la sérénité."
+    : v <= -1 ? "Active <b>Endurance + Maturité</b>."
+    : v <= 2000 ? "Active <b>Amour + Maturité</b>."
+    : "Active <b>Sérénité −</b> pour faire baisser la sérénité.";
   $("#serOut").innerHTML = `<p>Jauges qui progressent : <b>${g.join(", ") || "aucune"}</b></p><p>${conseil}</p>`;
 }
 $("#serIn").oninput = serenity; serenity();
