@@ -62,6 +62,7 @@ installé par `npm install` via le script `prepare`). Playwright utilise Chromiu
 - `app/` : pages (App Router) · `components/` : composants (shadcn/ui dans `components/ui`)
 - `lib/` : logique pure testée par Vitest · `e2e/` : tests Playwright
 - `legacy/` : la v2 d'origine, inchangée
+- `docs/` : documentation du modèle, dont [`docs/serenite.md`](docs/serenite.md) (calcul de la sérénité : quand revenir à l'enclos, hypothèses et points à vérifier en jeu)
 
 ## Licence
 
