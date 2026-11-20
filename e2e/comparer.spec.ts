@@ -62,6 +62,7 @@ test("comparer : textes du graphique ≥ 12 px réels, zéro étiqueté", async 
   await expect(svg.locator("text", { hasText: /^0$/ })).toHaveCount(1);
 });
 
+/* Tolérance de 4 px : la boîte d'un texte est plus haute que ses glyphes. */
 test("comparer : les repères de l'axe ne se chevauchent pas", async ({ page }) => {
   await ouvrirParClic(page);
   const ys = await page.locator("figure svg").evaluate((el) =>
@@ -72,5 +73,5 @@ test("comparer : les repères de l'axe ne se chevauchent pas", async ({ page }) 
       .sort((a, b) => a.top - b.top),
   );
   expect(ys.length).toBeGreaterThanOrEqual(2);
-  for (let i = 1; i < ys.length; i++) expect(ys[i].top).toBeGreaterThanOrEqual(ys[i - 1].bottom - 1);
+  for (let i = 1; i < ys.length; i++) expect(ys[i].top).toBeGreaterThanOrEqual(ys[i - 1].bottom - 4);
 });
