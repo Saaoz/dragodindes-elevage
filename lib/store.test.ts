@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fixture from "./__fixtures__/export-v2.json";
 import { defaultAppData, type PriceKey } from "./schema";
 import {
-  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateOptimakina, migrateRappels, migrateV1, parseExport,
+  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateOptimakina, migrateRappels, migrateV1, parseExport, syncOnglets,
   parsePaste, priceValues, resetDemo, useDemoStore, useStore,
 } from "./store";
 
@@ -519,8 +519,8 @@ describe("rappel push par enclos (#16) : version 5", () => {
     nom: "Nord", jaugeSerenite: "+", niveauSerenite: 1000, saisieLe, ...(rappel === undefined ? {} : { rappel }),
   });
 
-  it("la version de stockage est 5", () => {
-    expect(STORAGE_VERSION).toBe(5);
+  it("la version de stockage est au moins 5", () => {
+    expect(STORAGE_VERSION).toBeGreaterThanOrEqual(5);
   });
 
   it("migrateRappels : ajoute rappel null, garde un rappel valide, répare un rappel illisible, idempotent", () => {
@@ -621,5 +621,72 @@ describe("refonte (#4) : objectif par enclos, marge des rappels, démo", () => {
     d.setEnclos(1, { ...d.enclos[1], nom: "x" });
     expect(snapshot()).toBe(before);
     expect(useDemoStore.getState().reglages.margeRappelMin).toBe(30);
+  });
+});
+
+describe("version 6 (#38) : onglets et anciennes versions", () => {
+  const enclosV5 = () => {
+    const enclos = defaultAppData().enclos;
+    enclos[4] = { ...enclos[4], nom: "Cinq", jaugeSerenite: "+", niveauSerenite: 1000, saisieLe: 7 };
+    return enclos;
+  };
+
+  it("la version de stockage est 6", () => {
+    expect(STORAGE_VERSION).toBe(6);
+  });
+
+  it("migration v5 → v6 : données inchangées, objectif et marge par défaut, réécrit en v6", async () => {
+    const enclos = enclosV5();
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 5, state: { ...fixture.data, enclos } }));
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(false);
+    expect(st().enclos[4].nom).toBe("Cinq");
+    expect(st().enclos[4].saisieLe).toBe(7);
+    expect(st().enclos[4].objectif).toBe(defaultAppData().enclos[4].objectif);
+    expect(st().reglages).toEqual(defaultAppData().reglages);
+    expect(st().prices.Imagiro).toEqual(fixPrices.Imagiro);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(6);
+  });
+
+  it("une version plus ancienne (v5) voit les données v6 comme futures : lecture seule, rien écrit", async () => {
+    /* simule le store de l'ancienne version : sa STORAGE_VERSION est 5, la nouvelle écrit 6 → on
+       reproduit le même rapport avec une version supérieure à celle du code courant */
+    const brut = JSON.stringify({ version: STORAGE_VERSION + 1, state: { ...fixture.data, enclos: enclosV5() } });
+    mem.setItem(STORAGE_KEY, brut);
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(true);
+    st().setPrice("Imagiro", "g5", 1);
+    st().setMargeRappel(30);
+    st().setObjectif(0, "maturite");
+    expect(mem.getItem(STORAGE_KEY)).toBe(brut);
+  });
+
+  it("une réhydratation à valeur identique n'écrit rien", async () => {
+    st().setPrice("Imagiro", "g5", 300000);
+    const setItem = vi.spyOn(mem, "setItem");
+    await useStore.persist.rehydrate();
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it("syncOnglets : un événement storage sur la clé relance la lecture ; nettoyage à la fin", async () => {
+    const cible = new EventTarget();
+    vi.stubGlobal("window", cible);
+    const stop = syncOnglets();
+    st().setPrice("Imagiro", "g5", 300000);
+    const autre = JSON.parse(mem.getItem(STORAGE_KEY)!);
+    autre.state.server = "Orukam";
+    mem.setItem(STORAGE_KEY, JSON.stringify(autre));
+    const evt = (key: string) => Object.assign(new Event("storage"), { key, storageArea: mem });
+    cible.dispatchEvent(evt("autre-cle"));
+    await Promise.resolve();
+    expect(st().server).toBe("Draconiros");
+    cible.dispatchEvent(evt(STORAGE_KEY));
+    await vi.waitFor(() => expect(st().server).toBe("Orukam"));
+    stop();
+    autre.state.server = "Imagiro";
+    mem.setItem(STORAGE_KEY, JSON.stringify(autre));
+    cible.dispatchEvent(evt(STORAGE_KEY));
+    await Promise.resolve();
+    expect(st().server).toBe("Orukam");
   });
 });
