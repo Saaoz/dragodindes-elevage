@@ -10,9 +10,11 @@ import {
   type Objectif,
 } from "@/lib/schema";
 import {
+  deplacer,
+  etatDeEnclos,
   planEnclos,
-  serenityPlan,
   pointsConsommes,
+  remplissageAuRetour,
   SERENITE_MAX,
   tempsVidage,
   ZONE_MATURITE,
@@ -178,7 +180,8 @@ export interface VueEnclos {
   alerte: AlerteEnclos | null;
   /** Retour dépassé : secondes écoulées depuis l'heure de retour (0 pile à l'heure) ; null avant (#31). */
   retardS: number | null;
-  /** Conseil de remplissage affiché sur la carte, calculé sur l'état À L'HEURE DE RETOUR (stable, #33) ;
+  /** Conseil de remplissage affiché sur la carte, calculé sur l'état À L'HEURE DE RETOUR (stable, #33) :
+      si la jauge pousse encore une monture au bord, il passe sur la jauge opposée (#45) ;
       null si le retour est dépassé (voir `CONSEIL_RETARD`). */
   conseil: string | null;
   /** Heure (ms) à laquelle la jauge de sérénité est (ou sera) vide, depuis la saisie ; null sans jauge. */
@@ -233,9 +236,15 @@ export function vueEnclos(
   if (retardS === null) {
     if (!retour) conseil = plan.aRemplir.conseil;
     else {
-      /* À l'heure de retour la jauge est à remplacer : on part de ses sérénités estimées et d'une jauge vide. */
-      const etatRetour = planEnclos(enclos, retour.quandMs, options).etat;
-      const auRetour = serenityPlan({ serenites: etatRetour.serenites, sens: null, niveauJauge: 0, zone: options.zone }).aRemplir;
+      /* État exact au moment de l'événement (points consommés depuis la saisie, sans arrondi d'heure).
+         Montures stables : calcul « jauge vide » ; encore poussées au bord : jauge opposée (#45). */
+      const saisi = etatDeEnclos(enclos);
+      const etatRetour = {
+        serenites: saisi.serenites.map((s) => deplacer(s, saisi.sens, retour.evenement.points)),
+        sens: saisi.sens,
+        niveauJauge: retour.evenement.niveauJauge,
+      };
+      const auRetour = remplissageAuRetour(etatRetour, options.zone);
       const sansConseil = auRetour.statut === "dejaAtteint" && !options.zone;
       const c = sansConseil ? "" : auRetour.conseil.replace(/ : pas besoin de revenir avant qu.elle soit vide\.$/, ".");
       conseil = c ? `À ton retour : ${c.charAt(0).toLowerCase()}${c.slice(1)}` : "";

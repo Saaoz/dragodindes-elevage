@@ -364,7 +364,8 @@ describe("conseil de remplissage de la carte (#33)", () => {
     const v = maturite(enclosTest([-3000], 200000), 0);
     expect(v.retour).not.toBeNull();
     const c = ss(v.conseil!);
-    expect(c).toMatch(/^À ton retour : mets 2 000 points au total dans la jauge Sérénité −\./);
+    /* à l'heure de retour la monture est à +2 000 et la jauge + pousse encore : jauge opposée (#45) */
+    expect(c).toMatch(/^À ton retour : passe sur la jauge Sérénité − et mets 2 000 points au total pour recentrer tes montures dans la zone Maturité\./);
     expect(c).toMatch(/reviens avant 21 h 20 pour changer de jauge \(à vérifier en jeu/);
     expect(c).not.toMatch(/pas besoin de revenir|couper/);
   });
@@ -400,5 +401,70 @@ describe("conseil de remplissage de la carte (#33)", () => {
     expect(v.retardS).not.toBeNull();
     expect(v.conseil).toBeNull();
     expect(CONSEIL_RETARD).toMatch(/Je quitte l’enclos/);
+  });
+});
+
+describe("conseil au retour au bord de la zone (#45)", () => {
+  const S = 1000;
+  const maturite = (serenites: number[], niveau: number, sens: "+" | "-" = "+") => ({
+    ...enclosTest(serenites, niveau, sens),
+    objectif: "maturite" as const,
+  });
+
+  it("deux montures, Maturité, jauge + active : au retour, Sérénité − avec N > 0 (plus « déjà atteint »)", () => {
+    /* −1 000 et +1 000 : +2 000 atteint après 1 000 points ; au retour [0 ; 2 000], recentrer = 1 000 points de Sérénité − */
+    const v = vueEnclos(maturite([-1000, 1000], 50000), 0, T0);
+    expect(v.retour?.evenement.type).toBe("sortieZone");
+    const c = ss(v.conseil!);
+    expect(c).toMatch(/^À ton retour : passe sur la jauge Sérénité − et mets 1 000 points au total pour recentrer tes montures dans la zone Maturité\./);
+    expect(c).not.toMatch(/déjà atteint|pas besoin de revenir/);
+  });
+
+  it("deux montures, Maturité, jauge − active : au retour, Sérénité + avec N > 0", () => {
+    /* +1 500 et −1 000 : −2 000 atteint après 1 000 points ; au retour [500 ; −2 000], 750 points de Sérénité + */
+    const v = vueEnclos(maturite([1500, -1000], 50000, "-"), 0, T0);
+    expect(ss(v.conseil!)).toMatch(/^À ton retour : passe sur la jauge Sérénité \+ et mets 750 points au total pour recentrer/);
+  });
+
+  it("objectif ±5 000 : la monture atteint +5 000, conseil Sérénité − (maximum sans gaspiller)", () => {
+    /* −3 000 et 0 en Sérénité + pleine : +5 000 après 5 000 points ; au retour [2 000 ; 5 000] */
+    const v = vueEnclos(enclosTest([-3000, 0], 200000), 0, T0);
+    expect(v.retour?.evenement.type).toBe("premiereBorne");
+    expect(ss(v.conseil!)).toMatch(
+      /^À ton retour : passe sur la jauge Sérénité − et mets 7 000 points au total : c'est le maximum avant qu'une monture atteigne −5 000\./,
+    );
+  });
+
+  it("groupe aussi large que la zone (−3 000 et +1 000 → −2 000 et +2 000) : séparer, plus « déjà atteint »", () => {
+    for (const serenites of [[-3000, 1000], [-4000, 1000]]) {
+      const c = ss(vueEnclos(maturite(serenites, 50000), 0, T0).conseil!);
+      expect(c).toMatch(/^À ton retour : tes montures sont trop écartées pour être recentrées ensemble dans la zone Maturité \(\d \d{3} d'écart, il faut moins de 4 000\) : sépare-les/);
+      expect(c).not.toMatch(/déjà atteint/);
+    }
+  });
+
+  it("montures stables au retour (jauge vide pile au bord) : « objectif déjà atteint » reste juste", () => {
+    /* 1 000 points : la jauge est vide quand les montures arrivent à −2 000 et +2 000 */
+    const v = vueEnclos(maturite([-3000, 1000], 1000), 0, T0);
+    expect(v.retour?.evenement.niveauJauge).toBe(0);
+    expect(ss(v.conseil!)).toBe("À ton retour : objectif déjà atteint : aucun point de sérénité à mettre.");
+  });
+
+  it("stable dans le temps : même conseil à t, t + 60 s et t + 10 min avant l'heure de retour", () => {
+    const e = maturite([-1000, 1000], 50000);
+    const a = vueEnclos(e, 0, T0).conseil;
+    expect(vueEnclos(e, 0, T0 + 60 * S).conseil).toBe(a);
+    expect(vueEnclos(e, 0, T0 + 600 * S).conseil).toBe(a);
+    expect(vueEnclos(e, 0, (vueEnclos(e, 0, T0).retour?.quandMs ?? 0) - 1).conseil).toBe(a);
+  });
+
+  it("retour dépassé (#31) : toujours pas de conseil de remplissage, même au bord de la zone", () => {
+    const e = maturite([-1000, 1000], 50000);
+    const quand = vueEnclos(e, 0, T0).retour!.quandMs;
+    for (const t of [quand, quand + 3600 * S]) {
+      const v = vueEnclos(e, 0, t);
+      expect(v.retardS).not.toBeNull();
+      expect(v.conseil).toBeNull();
+    }
   });
 });

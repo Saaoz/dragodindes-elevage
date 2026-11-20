@@ -67,6 +67,27 @@ HH:MM pour changer de jauge ». Retour dépassé (#31) : pas de conseil de rempl
 consigne de ressaisie. Sans heure de retour (jauge vide à la saisie), « pas besoin de revenir » reste
 possible.
 
+#### Au bord de la zone, la jauge pousse encore (#45)
+
+L'heure de retour est souvent celle où une monture **arrive au bord** : +2 000 / −2 000 pour « Rester
+en Maturité », ±5 000 pour « Éviter ±5 000 ». À cet instant les montures sont encore dans la zone,
+mais la jauge active les pousse dehors. Un calcul « jauge vide » répondrait « objectif déjà atteint »
+alors que c'est le moment d'agir. `remplissageAuRetour` (`lib/serenity.ts`) part de l'état exact à
+l'événement (points consommés depuis la saisie) :
+
+| Cas au retour | Conseil |
+|---|---|
+| Rester en Maturité, monture à +2 000, Sérénité + encore active | « Passe sur la jauge Sérénité − et mets N points au total pour recentrer tes montures dans la zone Maturité. » N centre le groupe dans la zone sans faire sortir la plus basse. |
+| Idem en Sérénité − (monture à −2 000) | même conseil avec Sérénité + |
+| Groupe aussi large que la zone (écart ≥ 4 000, ex. −2 000 et +2 000) | « Tes montures sont trop écartées pour être recentrées ensemble … : sépare-les dans des enclos différents. » (aucune jauge ne les garde toutes) |
+| Éviter ±5 000, monture à ±5 000, jauge encore active | « Passe sur la jauge Sérénité − et mets N points au total : c'est le maximum avant qu'une monture atteigne −5 000. » (même règle que `serenityPlan` sans objectif, pour la jauge opposée) |
+| Montures aux deux bornes (±5 000) | séparer |
+| Montures stables (aucune jauge, ou jauge vide à ce moment) | calcul « jauge vide » d'avant (#33) : « objectif déjà atteint » n'est possible que là |
+| Retour dépassé (#31) | inchangé : consigne de ressaisie |
+
+À vérifier en jeu : peut-on **changer de jauge** alors que l'autre contient encore du carburant, et
+que devient ce carburant ? La carte ne promet rien de plus que « passe sur la jauge … ».
+
 **Incertitude** : on ne sait pas si le jeu permet de retirer le carburant ou de couper une jauge ;
 la carte ne le promet donc pas (ancienne phrase « reviens la couper »).
 
@@ -88,7 +109,8 @@ tout en tier 4, soit **2 000 s ≈ 33 min** ; les 192 000 points restants (≈ 3
 ## À vérifier en jeu
 
 - [ ] Peut-on **retirer le carburant** (ou couper une jauge) avant qu'elle soit vide, ou seulement
-  changer de jauge (Sérénité + / −) ? La carte dit « à vérifier en jeu » (#33).
+  changer de jauge (Sérénité + / −) ? La carte dit « à vérifier en jeu » (#33). Le conseil au bord de
+  la zone (« passe sur la jauge Sérénité − », #45) suppose qu'on peut changer de jauge sur place.
 - [ ] **Valeur de chaque visage** : le jeu montre des visages, pas un nombre. Le filtre « Sérénité de
   … à … » de l'Étable permet d'encadrer la valeur exacte d'une monture.
 - [ ] Le niveau exact d'une jauge est-il affiché quelque part (survol de la barre) ?

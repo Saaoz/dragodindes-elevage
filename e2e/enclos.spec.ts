@@ -80,6 +80,27 @@ test("objectif et marge de rappel : enregistrés et visibles après rechargement
   await expect(carte2.getByText(/Rappel 15 min avant/)).toBeVisible();
 });
 
+test("Rester en Maturité : au retour, le conseil inverse la jauge au lieu de « objectif déjà atteint » (#45)", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  await carte.getByRole("button", { name: "Saisir cet enclos" }).click();
+  await page.getByLabel("Sérénité exacte de la monture 1").fill("-1000");
+  await page.getByRole("button", { name: /Ajouter une monture/ }).click();
+  await page.getByLabel("Sérénité exacte de la monture 2").fill("1000");
+  await page.getByRole("button", { name: "Sérénité +" }).click();
+  await page.getByPlaceholder("ex. 200000 ou 85k").fill("50000");
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+  await carte.getByRole("button", { name: "Rester en Maturité" }).click();
+
+  /* +1 000 atteint +2 000 après 1 000 points : au retour, Sérénité − pour recentrer le groupe */
+  await expect(carte.getByText(/sort de la zone Maturité/)).toBeVisible();
+  await expect(
+    carte.getByText(/À ton retour\s*: passe sur la jauge Sérénité − et mets 1\s000 points au total pour recentrer tes montures dans la zone Maturité\./),
+  ).toBeVisible();
+  await expect(carte.getByText(/déjà atteint/)).toHaveCount(0);
+});
+
 test("le tableau de bord montre l'enclos le plus urgent", async ({ page }) => {
   await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
   await page.goto("/enclos");
