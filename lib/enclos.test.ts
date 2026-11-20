@@ -3,7 +3,7 @@ import {
   brouillonDe,
   CONSEIL_RETARD,
   enclosUrgents,
-  libelleRetard,
+  raisonRetour,
   texteAlerte,
   heureRappel,
   libelleMarge,
@@ -11,6 +11,7 @@ import {
   formatCompteARebours,
   formatDuree,
   formatHeure,
+  formatNombre,
   parseNombre,
   remplacerEnclos,
   trierParUrgence,
@@ -21,6 +22,8 @@ import {
 import { defaultEnclos, enclosSchema } from "@/lib/schema";
 
 const T0 = new Date(2026, 10, 20, 21, 0, 0).getTime();
+/* Les espaces insécables (#32) ne changent pas le texte : on les ramène à des espaces pour comparer. */
+const ss = (s: string) => s.replace(/[  ]/g, " ");
 
 const enclosTest = (serenites: number[], niveau: number, sens: "+" | "-" | null = "+") =>
   enclosSchema.parse({
@@ -138,17 +141,28 @@ describe("remplacerEnclos", () => {
   });
 });
 
-describe("formats", () => {
+describe("formats (#32 : espaces insécables)", () => {
   it("formatHeure", () => {
-    expect(formatHeure(new Date(2026, 10, 20, 21, 40).getTime(), T0)).toBe("21 h 40");
-    expect(formatHeure(new Date(2026, 10, 21, 9, 5).getTime(), T0)).toBe("demain 09 h 05");
+    expect(ss(formatHeure(new Date(2026, 10, 20, 21, 40).getTime(), T0))).toBe("21 h 40");
+    expect(ss(formatHeure(new Date(2026, 10, 21, 9, 5).getTime(), T0))).toBe("demain 09 h 05");
   });
   it("formatDuree et compte à rebours", () => {
-    expect(formatDuree(45)).toBe("45 s");
-    expect(formatDuree(723)).toBe("12 min 03 s");
-    expect(formatDuree(3900)).toBe("1 h 05 min");
+    expect(ss(formatDuree(45))).toBe("45 s");
+    expect(ss(formatDuree(723))).toBe("12 min 03 s");
+    expect(ss(formatDuree(3900))).toBe("1 h 05 min");
     expect(formatCompteARebours(723)).toBe("12:03");
     expect(formatCompteARebours(3909)).toBe("1:05:09");
+  });
+  it("les heures, durées et nombres formatés n'ont que des espaces insécables entre leurs parties", () => {
+    expect(formatHeure(new Date(2026, 10, 20, 21, 33).getTime(), T0)).toBe("21 h 33");
+    expect(formatDuree(3900)).toBe("1 h 05 min");
+    expect(formatDuree(723)).toBe("12 min 03 s");
+    expect(formatDuree(45)).toBe("45 s");
+    expect(formatNombre(18600)).toMatch(/^18[  ]600$/);
+    expect(formatNombre(-3000)).toMatch(/^−3[  ]000$/);
+    for (const texte of [formatDuree(3900), formatHeure(new Date(2026, 10, 20, 21, 33).getTime(), T0), formatNombre(18600)]) {
+      expect(texte).not.toMatch(/ /);
+    }
   });
 });
 
@@ -158,7 +172,7 @@ describe("refonte (#4) : marge réglable et tableau de bord", () => {
     expect(heureRappel(T0 + 60_000, 5, T0)).toBe(T0);
     expect(heureRappel(T0 + 60_000, 0, T0)).toBe(T0 + 60_000);
     expect(libelleMarge(0)).toBe("à l’heure exacte");
-    expect(libelleMarge(15)).toBe("15 min avant");
+    expect(ss(libelleMarge(15))).toBe("15 min avant");
   });
 
   it("enclosUrgents : saisis avec heure de retour, le plus urgent d'abord, 3 au plus", () => {
@@ -178,6 +192,28 @@ describe("refonte (#4) : marge réglable et tableau de bord", () => {
   });
 });
 
+describe("raison du retour (#32) : une seule formulation, à venir ou dépassée", () => {
+  it("objectif « Rester en Maturité » : à venir, la sortie de la zone Maturité", () => {
+    const e = { ...enclosTest([1500], 200000), objectif: "maturite" as const };
+    const v = vueEnclos(e, 0, T0);
+    expect(raisonRetour(v, T0)).toBe("une monture sort de la zone Maturité");
+  });
+
+  it("objectif « Éviter ±5 000 » : à venir, la borne ±5 000", () => {
+    const v = vueEnclos(enclosTest([-3000], 200000), 0, T0);
+    expect(ss(raisonRetour(v, T0)!)).toBe("une monture atteint ±5 000");
+  });
+
+  it("jauge vidée avant toute borne : à venir, la jauge sera vide", () => {
+    const v = vueEnclos(enclosTest([0], 3000), 0, T0);
+    expect(raisonRetour(v, T0)).toBe("la jauge de sérénité sera vide à ce moment-là");
+  });
+
+  it("pas d'heure de retour : null", () => {
+    expect(raisonRetour(vueEnclos(defaultEnclos()[0], 0, T0), T0)).toBeNull();
+  });
+});
+
 describe("retour dépassé (#31) : les événements gardent leur vraie heure, calculée depuis la saisie", () => {
   const S = 1000;
   /* −3 000 en Sérénité + pleine : +5 000 atteint après 8 000 points, en tier 4, soit 2 000 s (21 h 33 min 20 s) */
@@ -190,9 +226,9 @@ describe("retour dépassé (#31) : les événements gardent leur vraie heure, ca
       expect(v.retour?.quandMs).toBe(H_BORNE);
       expect(v.retardS).toBeNull();
       expect(v.alerte).toMatchObject({ quandMs: H_BORNE, passee: false, gaspilleDeja: 0, gaspille: 192000 });
-      expect(libelleRetard(v, T0 + t * S)).toBeNull();
+      expect(ss(raisonRetour(v, T0 + t * S)!)).toBe("une monture atteint ±5 000");
     }
-    expect(texteAlerte(vueEnclos(borne, 0, T0).alerte!, T0)).toBe(
+    expect(ss(texteAlerte(vueEnclos(borne, 0, T0).alerte!, T0))).toBe(
       "la monture 1 atteindra +5 000 à 21 h 33. Si tu reviens plus tard, 192 000 points de jauge sont gaspillés pour elle.",
     );
   });
@@ -202,7 +238,7 @@ describe("retour dépassé (#31) : les événements gardent leur vraie heure, ca
     expect(v.retour?.quandMs).toBe(H_BORNE);
     expect(v.retardS).toBe(0);
     expect(v.alerte).toMatchObject({ passee: true, gaspilleDeja: 0 });
-    expect(libelleRetard(v, H_BORNE)).toBe("la monture 1 est à +5 000 depuis 21 h 33");
+    expect(ss(raisonRetour(v, H_BORNE)!)).toBe("la monture 1 est à +5 000 depuis 21 h 33");
   });
 
   it("monture à la borne depuis 1 h : vrai retard, points gaspillés, alerte au passé, plus « objectif déjà atteint »", () => {
@@ -213,8 +249,8 @@ describe("retour dépassé (#31) : les événements gardent leur vraie heure, ca
     expect(v.retardS).toBe(3600);
     /* 5 600 s : 20 000 points en tier 4 (5 000 s) puis 600 s × 3 = 21 800 consommés, dont 8 000 avant la borne */
     expect(v.alerte).toMatchObject({ quandMs: H_BORNE, passee: true, gaspilleDeja: 13800, gaspille: 192000 });
-    expect(libelleRetard(v, maintenant)).toBe("la monture 1 est à +5 000 depuis 21 h 33, 13 800 points de jauge gaspillés");
-    expect(texteAlerte(v.alerte!, maintenant)).toBe(
+    expect(ss(raisonRetour(v, maintenant)!)).toBe("la monture 1 est à +5 000 depuis 21 h 33, 13 800 points de jauge gaspillés");
+    expect(ss(texteAlerte(v.alerte!, maintenant))).toBe(
       "la monture 1 a atteint +5 000 à 21 h 33 : 13 800 points de jauge gaspillés pour elle depuis, jusqu’à 192 000 si tu ne reviens pas.",
     );
     expect(v.plan.etat.serenites).toEqual([5000]);
@@ -228,7 +264,7 @@ describe("retour dépassé (#31) : les événements gardent leur vraie heure, ca
     const v = vueEnclos(borne, 0, maintenant);
     expect(v.retour?.quandMs).toBe(H_BORNE);
     expect(v.alerte).toMatchObject({ gaspilleDeja: 192000, gaspille: 192000 });
-    expect(texteAlerte(v.alerte!, maintenant)).toMatch(/^la monture 1 a atteint \+5 000 à .+ 21 h 33 : 192 000 points de jauge gaspillés pour elle\.$/);
+    expect(ss(texteAlerte(v.alerte!, maintenant))).toMatch(/^la monture 1 a atteint \+5 000 à .+ 21 h 33 : 192 000 points de jauge gaspillés pour elle\.$/);
     expect(v.jaugeVideMs).toBeLessThan(maintenant);
     expect(v.jaugeVideMs).toBe(T0 + Math.round(vueEnclos(borne, 0, T0).plan.tempsVide * S));
   });
@@ -243,7 +279,7 @@ describe("retour dépassé (#31) : les événements gardent leur vraie heure, ca
     expect(v.retardS).toBe(4200);
     expect(v.jaugeVideMs).toBe(T0 + 3000 * S);
     expect(v.alerte).toBeNull();
-    expect(libelleRetard(v, maintenant)).toBe("jauge Sérénité + vide depuis 21 h 50");
+    expect(ss(raisonRetour(v, maintenant)!)).toBe("jauge Sérénité + vide depuis 21 h 50");
 
     const liste = defaultEnclos();
     liste[3] = e;
@@ -254,7 +290,7 @@ describe("retour dépassé (#31) : les événements gardent leur vraie heure, ca
   it("Sérénité − : libellés avec le bon signe", () => {
     const e = enclosTest([0], 3000, "-");
     const v = vueEnclos(e, 0, T0 + 4000 * S);
-    expect(libelleRetard(v, T0 + 4000 * S)).toBe("jauge Sérénité − vide depuis 21 h 50");
+    expect(ss(raisonRetour(v, T0 + 4000 * S)!)).toBe("jauge Sérénité − vide depuis 21 h 50");
   });
 
   it("objectif Maturité dépassé : sortie de zone à sa vraie heure, au passé", () => {
@@ -264,7 +300,7 @@ describe("retour dépassé (#31) : les événements gardent leur vraie heure, ca
     const v = vueEnclos(e, 0, maintenant);
     expect(v.retour).toMatchObject({ evenement: { type: "sortieZone" }, quandMs: T0 + 125 * S });
     expect(v.retardS).toBe(3475);
-    expect(libelleRetard(v, maintenant)).toBe("la monture 1 est sortie de la zone Maturité à 21 h 02");
+    expect(ss(raisonRetour(v, maintenant)!)).toBe("la monture 1 est sortie de la zone Maturité à 21 h 02");
     expect(v.alerte).toMatchObject({ quandMs: T0 + 875 * S, passee: true });
     /* toutes les montures au-dessus de la Maturité : le conseil est de passer à Sérénité − */
     expect(v.plan.aRemplir).toMatchObject({ statut: "sensIncoherent", sensConseille: "-" });

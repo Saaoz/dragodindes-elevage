@@ -335,7 +335,7 @@ function regrouper(valeurs: readonly number[], ecartMax: number): number[][] {
   return groupes.map((g) => g.sort((a, b) => a - b));
 }
 
-const fmt = (n: number): string => Math.round(n).toLocaleString("fr-FR").replace(/ | /g, " ");
+const fmt = (n: number): string => Math.round(n).toLocaleString("fr-FR").replace(/\s/g, " ");
 
 function calculerRemplissage(
   serenites: readonly number[],

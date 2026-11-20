@@ -327,3 +327,17 @@ describe("marge réglable du rappel push (#4)", () => {
     expect(a.ok && b.ok && a.at - b.at).toBe(600_000);
   });
 });
+
+describe("contenu du rappel selon l'objectif (#32)", () => {
+  const enclos = enclosSchema.parse({ nom: "Nord", montures: [{ serenite: 1500 }], jaugeSerenite: "+", niveauSerenite: 200000, saisieLe: T0 });
+  it("« Rester en Maturité » : le rappel parle de la sortie de la zone Maturité", () => {
+    const c = contenuRappel(enclos, 0, "maturite", T0, 0);
+    expect(c.ok).toBe(true);
+    if (c.ok) expect(c.corps).toMatch(/^Reviens avant .+ : une monture sort de la zone Maturité\.$/);
+  });
+  it("« Éviter ±5 000 » : le rappel parle de la borne ±5 000", () => {
+    const c = contenuRappel(enclos, 0, "aucun", T0, 0);
+    expect(c.ok).toBe(true);
+    if (c.ok) expect(c.corps.replace(/\s/g, " ")).toMatch(/^Reviens avant .+ : une monture atteint ±5 000\.$/);
+  });
+});

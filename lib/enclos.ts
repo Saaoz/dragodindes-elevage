@@ -149,7 +149,7 @@ export interface RetourEnclos {
   quandMs: number;
 }
 
-/** Une monture atteint ±5 000 avant que la jauge soit vide : des points sont (ou seront) gaspillés. */
+/** Une monture atteint ±5 000 avant que la jauge soit vide : des points sont (ou seront) gaspillés. */
 export interface AlerteEnclos {
   monture: number;
   valeur: number;
@@ -222,12 +222,24 @@ export function vueEnclos(
 /* ---------- retour dépassé (#31) ---------- */
 const nomJauge = (sens: SensJauge | null) => `Sérénité ${sens === "-" ? "−" : "+"}`;
 
-/** Ce qui s'est passé à l'heure de retour dépassée, au passé et avec la vraie heure ; null si pas en retard. */
-export function libelleRetard(vue: VueEnclos, maintenantMs: number): string | null {
-  if (vue.retardS === null || !vue.retour) return null;
+/** Pourquoi l'heure de retour compte, une seule formulation pour l'accueil, la carte et le rappel.
+    Avant l'heure : « une monture sort de la zone Maturité ». Après : ce qui s'est passé, au passé et avec la vraie heure.
+    null s'il n'y a pas d'heure de retour. */
+export function raisonRetour(vue: VueEnclos, maintenantMs: number): string | null {
+  if (!vue.retour) return null;
   const { evenement: ev, quandMs } = vue.retour;
-  const h = formatHeure(quandMs, maintenantMs);
   const m = (ev.monture ?? 0) + 1;
+  if (vue.retardS === null) {
+    switch (ev.type) {
+      case "sortieZone":
+        return "une monture sort de la zone Maturité";
+      case "premiereBorne":
+        return "une monture atteint ±5 000";
+      default:
+        return "la jauge de sérénité sera vide à ce moment-là";
+    }
+  }
+  const h = formatHeure(quandMs, maintenantMs);
   switch (ev.type) {
     case "premiereBorne": {
       const deja = vue.alerte?.gaspilleDeja ?? 0;
@@ -272,7 +284,7 @@ export function heureRappel(retourMs: number, margeMin: number, maintenantMs: nu
 
 /** « 5 min avant », « à l'heure exacte ». */
 export const libelleMarge = (margeMin: number): string =>
-  margeMin <= 0 ? "à l’heure exacte" : `${margeMin} min avant`;
+  margeMin <= 0 ? "à l’heure exacte" : `${margeMin}${ESPACE_INSECABLE}min avant`;
 
 /** Le plus urgent d'abord, limité aux enclos saisis qui ont une heure de retour (tableau de bord).
     Un enclos en retard garde son heure de retour passée : il reste donc en tête (#31). */
@@ -283,12 +295,14 @@ export function enclosUrgents(liste: readonly Enclos[], maintenantMs: number, ma
 }
 
 /* ---------- formats ---------- */
+/** Espace insécable : durées, heures et nombres ne se coupent jamais en fin de ligne (#32). */
+export const ESPACE_INSECABLE = " ";
 const p2 = (n: number) => String(n).padStart(2, "0");
 
 /** « 21 h 40 », « demain 09 h 05 », « sam. 22 nov. 09 h 05 » (heure locale). */
 export function formatHeure(ms: number, maintenantMs: number): string {
   const d = new Date(ms);
-  const h = `${p2(d.getHours())} h ${p2(d.getMinutes())}`;
+  const h = `${p2(d.getHours())}${ESPACE_INSECABLE}h${ESPACE_INSECABLE}${p2(d.getMinutes())}`;
   const jour = (x: Date) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
   const ecart = Math.round((jour(d) - jour(new Date(maintenantMs))) / 86_400_000);
   if (ecart === 0) return h;
@@ -300,9 +314,10 @@ export function formatHeure(ms: number, maintenantMs: number): string {
 /** « 45 s », « 12 min 03 s », « 1 h 05 min », « 35 h 38 min ». */
 export function formatDuree(secondes: number): string {
   const s = Math.max(0, Math.round(secondes));
-  if (s < 60) return `${s} s`;
-  if (s < 3600) return `${Math.floor(s / 60)} min ${p2(s % 60)} s`;
-  return `${Math.floor(s / 3600)} h ${p2(Math.floor((s % 3600) / 60))} min`;
+  const E = ESPACE_INSECABLE;
+  if (s < 60) return `${s}${E}s`;
+  if (s < 3600) return `${Math.floor(s / 60)}${E}min${E}${p2(s % 60)}${E}s`;
+  return `${Math.floor(s / 3600)}${E}h${E}${p2(Math.floor((s % 3600) / 60))}${E}min`;
 }
 
 /** Compte à rebours court pour le titre d'onglet : « 12:03 » ou « 1:05:09 ». */
@@ -314,5 +329,5 @@ export function formatCompteARebours(secondes: number): string {
 }
 
 export const formatNombre = (n: number): string =>
-  Math.round(n).toLocaleString("fr-FR").replace(/[  ]/g, " ").replace("-", "−");
+  Math.round(n).toLocaleString("fr-FR").replace(/\s/g, ESPACE_INSECABLE).replace("-", "−");
 export const formatSerenite = (n: number): string => `${n > 0 ? "+" : ""}${formatNombre(n)}`;

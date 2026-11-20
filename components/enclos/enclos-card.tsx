@@ -16,7 +16,7 @@ import {
   formatSerenite,
   heureRappel,
   libelleMarge,
-  libelleRetard,
+  raisonRetour,
   texteAlerte,
   visageDe,
   type Objectif,
@@ -106,7 +106,7 @@ export function EnclosCard({
   const { retour, alerte, plan } = vue;
   const reste = retour ? (retour.quandMs - maintenantMs) / 1000 : null;
   const depasse = vue.retardS !== null;
-  const retard = libelleRetard(vue, maintenantMs);
+  const raison = raisonRetour(vue, maintenantMs) ?? "";
   const jaugeVidee = vue.jaugeVideMs !== null && vue.jaugeVideMs <= maintenantMs;
   const urgent = alerte !== null || (reste !== null && reste < 900);
 
@@ -206,15 +206,9 @@ export function EnclosCard({
                     : `Reviens avant ${formatHeure(retour.quandMs, maintenantMs)}`}
                 </p>
                 <p className={cn("text-sm", urgent ? "font-medium text-destructive" : "text-muted-foreground")}>
-                  {depasse && retard
-                    ? `${retard.charAt(0).toUpperCase()}${retard.slice(1)}.`
-                    : `dans ${formatDuree(reste ?? 0)} · ${
-                        retour.evenement.type === "jaugeVide"
-                          ? "jauge de sérénité vide à ce moment-là"
-                          : retour.evenement.type === "sortieZone"
-                            ? "une monture sort de la zone Maturité"
-                            : "une monture atteint ±5 000"
-                      }`}
+                  {depasse
+                    ? `${raison.charAt(0).toUpperCase()}${raison.slice(1)}.`
+                    : `dans ${formatDuree(reste ?? 0)} · ${raison}`}
                 </p>
                 {depasse && <p className="mt-1 text-sm">{CONSEIL_RETARD}</p>}
               </div>
