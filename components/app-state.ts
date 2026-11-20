@@ -4,7 +4,7 @@
    Jamais persisté : recharger la page quitte toujours la démo. */
 import { useEffect } from "react";
 import { create } from "zustand";
-import { resetDemo, useDemoStore, useStore, type AppStore } from "@/lib/store";
+import { resetDemo, syncOnglets, useDemoStore, useStore, type AppStore } from "@/lib/store";
 
 interface Ui {
   /* Vrai une fois le localStorage relu (le magasin est créé avec skipHydration). */
@@ -29,7 +29,11 @@ export function useHydratation() {
     const fin = useStore.persist.onFinishHydration(() => useUi.setState({ pret: true }));
     void useStore.persist.rehydrate();
     if (useStore.persist.hasHydrated()) useUi.setState({ pret: true });
-    return fin;
+    const finSync = syncOnglets();
+    return () => {
+      fin();
+      finSync();
+    };
   }, []);
 }
 
