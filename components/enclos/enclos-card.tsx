@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { BellRing, Clock, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Choix } from "@/components/commun/choix";
@@ -23,7 +23,7 @@ import {
 } from "@/lib/enclos";
 import { construireIcs, lienGoogleAgenda, nomFichierIcs, type EvenementAgenda } from "@/lib/ics";
 import { CAPACITE_JAUGE } from "@/lib/data";
-import type { Enclos } from "@/lib/schema";
+import type { AncienRappel as AncienRappelType, Enclos } from "@/lib/schema";
 import { cn } from "@/lib/utils";
 import { ChoixRappel } from "@/components/enclos/choix-rappel";
 import { LIBELLE_ETAT, methodeAUtiliser, type MethodeRappel } from "@/lib/rappel";
@@ -41,7 +41,10 @@ export interface RappelCarte {
   onMethode: (m: MethodeRappel) => void;
   /* planifie la notification push ; renvoie l'heure d'envoi, ou null si elle n'a pas pu être programmée */
   onPush: () => Promise<number | null>;
-  onAnnulerPush: () => void;
+  /* annule le rappel programmé de cet enclos (annule le push s'il y en a un ; l'agenda ne peut pas être retiré par l'appli) */
+  onAnnuler: () => void;
+  /* mémorise un rappel agenda / Google programmé pour la saisie actuelle ; false si rien n'a pu être écrit */
+  onProgramme: (methode: "agenda" | "google", at: number) => boolean;
   /* l'autorisation de notifier est celle du navigateur : relue après chaque demande */
   onPermission: (p: Permission) => void;
 }
@@ -107,10 +110,22 @@ export function EnclosCard({
 }) {
   const nom = enclos.nom || `Enclos ${vue.index + 1}`;
   const [edition, setEdition] = useState(false);
-  /* Dernier rappel programmé depuis cette carte (agenda, page) ou push ; le push survit au rechargement via `enclos.rappel`. */
+  /* Rappel « dans la page » : seul état non persisté (il disparaît vraiment au rechargement). Push, agenda et
+     Google Agenda sont mémorisés dans `enclos.rappel` et survivent au rechargement (#53). */
   const [fait, setFait] = useState<{ methode: MethodeRappel; at: number } | null>(null);
   const [choixOuvert, setChoixOuvert] = useState(false);
   const [annonce, setAnnonce] = useState("");
+  /* le gros bouton disparaît quand un rappel est programmé : le focus passe à « changer » (ou revient au bouton) */
+  const boutonRef = useRef<HTMLButtonElement>(null);
+  const changerRef = useRef<HTMLButtonElement>(null);
+  const focusPris = useRef(false);
+  const [focusTick, setFocusTick] = useState(0);
+  useEffect(() => {
+    if (choixOuvert) focusPris.current = false;
+  }, [choixOuvert]);
+  useEffect(() => {
+    if (focusTick > 0) (changerRef.current ?? boutonRef.current)?.focus();
+  }, [focusTick]);
   const [confirmeVider, setConfirmeVider] = useState(false);
   const saisi = enclos.saisieLe !== null;
   const { retour, alerte, plan } = vue;
@@ -143,34 +158,53 @@ export function EnclosCard({
   const heureRappelMs = retour ? heureRappel(retour.quandMs, margeMin, maintenantMs) : 0;
   const heure = formatHeure(heureRappelMs, maintenantMs);
 
-  /* État affiché sous le bouton : le dernier rappel fait ici, sinon le push planifié (persisté), tant que l'heure n'est pas passée. */
-  const pushPrevu = !reglageRappel.demo && enclos.rappel !== null && enclos.rappel.at > maintenantMs;
+  /* Rappel programmé pour la saisie actuelle : « dans la page » (état local), sinon celui mémorisé dans l'enclos.
+     Le push n'est plus à venir une fois son heure passée ; agenda et Google restent « programmés » jusqu'à la ressaisie. */
+  const memo = !reglageRappel.demo ? enclos.rappel : null;
+  const memoValide = memo !== null && (memo.methode !== "push" || memo.at > maintenantMs);
   const etat: { methode: MethodeRappel; at: number } | null =
-    fait && fait.at > maintenantMs ? fait : pushPrevu ? { methode: "push", at: enclos.rappel!.at } : null;
+    fait && fait.at > maintenantMs ? fait : memoValide ? { methode: memo.methode, at: memo.at } : null;
+  /* Événement d'agenda laissé par la saisie précédente (ressaisie, vidage, annulation) : à supprimer à la main,
+     tant qu'il n'est pas passé. */
+  const ancien = !reglageRappel.demo ? enclos.ancienRappel : null;
+  const ancienVisible = ancien !== null && ancien.at > maintenantMs;
 
-  const programmer = async (m: MethodeRappel) => {
-    if (!retour || !evt) return;
+  /* Renvoie vrai si un rappel a bien été programmé. */
+  const programmer = async (m: MethodeRappel): Promise<boolean> => {
+    if (!retour || !evt) return false;
     const programme = (at: number) => {
-      setFait({ methode: m, at });
       setAnnonce(`Rappel programmé à ${formatHeure(at, Date.now())}`);
+      return true;
     };
     if (m === "push") {
       const at = await reglageRappel.onPush();
-      if (at !== null) programme(at);
-      else setAnnonce("");
-    } else if (m === "agenda") {
-      telecharger(nomFichierIcs(`retour-${nom}`), construireIcs(evt));
-      programme(heureRappelMs);
-    } else if (m === "google") {
-      window.open(lienGoogleAgenda(evt), "_blank", "noopener,noreferrer");
-      programme(heureRappelMs);
-    } else {
-      if (typeof Notification === "undefined") return reglageRappel.onPermission("indisponible");
-      let p: NotificationPermission = Notification.permission;
-      if (p === "default") p = await Notification.requestPermission();
-      reglageRappel.onPermission(p);
-      if (p === "granted") programme(heureRappel(retour.quandMs, margeMin, Date.now()));
+      if (at === null) {
+        setAnnonce("");
+        return false;
+      }
+      return programme(at);
+    } else if (m === "agenda" || m === "google") {
+      if (m === "agenda") telecharger(nomFichierIcs(`retour-${nom}`), construireIcs(evt));
+      else window.open(lienGoogleAgenda(evt), "_blank", "noopener,noreferrer");
+      /* mémorisé dans l'enclos : l'état survit au rechargement et le gros bouton ne revient pas (pas de doublon d'agenda) */
+      if (!reglageRappel.onProgramme(m, heureRappelMs)) setFait({ methode: m, at: heureRappelMs });
+      return programme(heureRappelMs);
     }
+    if (typeof Notification === "undefined") {
+      reglageRappel.onPermission("indisponible");
+      return false;
+    }
+    let p: NotificationPermission = Notification.permission;
+    if (p === "default") p = await Notification.requestPermission();
+    reglageRappel.onPermission(p);
+    if (p !== "granted") return false;
+    const at = heureRappel(retour.quandMs, margeMin, Date.now());
+    setFait({ methode: "page", at });
+    return programme(at);
+  };
+  const lancer = async (m: MethodeRappel) => {
+    await programmer(m);
+    setFocusTick((t) => t + 1);
   };
 
   /* Un seul appui si la méthode mémorisée marche encore ici ; sinon (ou « changer ») le choix s'ouvre. */
@@ -178,18 +212,21 @@ export function EnclosCard({
   const appuyer = () => {
     if (reglageRappel.demo) return setAnnonce("Mode démo : aucun rappel réel n’est programmé. Quitte la démo pour en programmer un.");
     if (methodeMemorisee === null) return setChoixOuvert(true);
-    void programmer(methodeMemorisee);
+    void lancer(methodeMemorisee);
   };
   const confirmer = (m: MethodeRappel) => {
+    focusPris.current = true;
     setChoixOuvert(false);
     reglageRappel.onMethode(m);
-    void programmer(m);
+    void lancer(m);
   };
   const annulerRappel = () => {
+    focusPris.current = true;
     setChoixOuvert(false);
-    if (pushPrevu) reglageRappel.onAnnulerPush();
+    if (memo !== null) reglageRappel.onAnnuler();
     setFait(null);
     setAnnonce("Rappel annulé");
+    setFocusTick((t) => t + 1);
   };
 
   const serenites = plan.etat.serenites;
@@ -234,7 +271,10 @@ export function EnclosCard({
           onCancel={() => setEdition(false)}
         />
       ) : !saisi ? (
-        <p className="text-sm text-muted-foreground">Pas encore saisi : renseigne-le au moment où tu quittes l&apos;enclos.</p>
+        <>
+          <p className="text-sm text-muted-foreground">Pas encore saisi : renseigne-le au moment où tu quittes l&apos;enclos.</p>
+          {ancienVisible && ancien && <AncienRappel ancien={ancien} maintenantMs={maintenantMs} />}
+        </>
       ) : (
         <>
           {retour ? (
@@ -334,31 +374,35 @@ export function EnclosCard({
 
           {evt && (
             <div className="flex flex-col gap-2 border-t pt-3" data-testid="rappel">
-              <Button
-                size="lg"
-                className="h-11 w-full text-base"
-                onClick={appuyer}
-                aria-label={`Me rappeler à ${heure} pour l’enclos ${nom}`}
-              >
-                <BellRing aria-hidden /> Me rappeler à {heure}
-              </Button>
               {etat ? (
-                <p className="flex flex-wrap items-center gap-x-1 text-sm" data-testid="etat-rappel">
-                  <span>
-                    Rappel : {LIBELLE_ETAT[etat.methode]}, à {formatHeure(etat.at, maintenantMs)} <span aria-hidden>✓</span>
-                  </span>
-                  <span aria-hidden>·</span>
-                  <BoutonChanger nom={nom} onClick={() => setChoixOuvert(true)} />
-                </p>
-              ) : (
-                methodeMemorisee !== null &&
-                !reglageRappel.demo && (
-                  <p className="flex flex-wrap items-center gap-x-1 text-sm text-muted-foreground" data-testid="methode-rappel">
-                    <span>Façon de te rappeler : {LIBELLE_ETAT[methodeMemorisee]}</span>
-                    <span aria-hidden>·</span>
-                    <BoutonChanger nom={nom} onClick={() => setChoixOuvert(true)} />
+                <div
+                  className="flex flex-wrap items-center gap-x-2 rounded-lg bg-primary/10 px-3 py-1 text-sm"
+                  data-testid="etat-rappel"
+                >
+                  <p className="font-medium">
+                    <span aria-hidden>✓ </span>Rappel programmé à {formatHeure(etat.at, maintenantMs)} ({LIBELLE_ETAT[etat.methode]})
                   </p>
-                )
+                  <BoutonChanger nom={nom} onClick={() => setChoixOuvert(true)} boutonRef={changerRef} />
+                </div>
+              ) : (
+                <>
+                  <Button
+                    ref={boutonRef}
+                    size="lg"
+                    className="h-11 w-full text-base"
+                    onClick={appuyer}
+                    aria-label={`Me rappeler à ${heure} pour l’enclos ${nom}`}
+                  >
+                    <BellRing aria-hidden /> Me rappeler à {heure}
+                  </Button>
+                  {methodeMemorisee !== null && !reglageRappel.demo && (
+                    <p className="flex flex-wrap items-center gap-x-1 text-sm text-muted-foreground" data-testid="methode-rappel">
+                      <span>Façon de te rappeler : {LIBELLE_ETAT[methodeMemorisee]}</span>
+                      <span aria-hidden>·</span>
+                      <BoutonChanger nom={nom} onClick={() => setChoixOuvert(true)} />
+                    </p>
+                  )}
+                </>
               )}
               {reglageRappel.enCours && <p className="text-sm text-muted-foreground">Programmation du rappel…</p>}
               {reglageRappel.note && <p className="text-sm text-warning">{reglageRappel.note}</p>}
@@ -380,11 +424,14 @@ export function EnclosCard({
                 initiale={methodeMemorisee ?? reglageRappel.methodes[0] ?? "agenda"}
                 sansPush={reglageRappel.sansPush}
                 rappelActif={etat !== null}
+                finalFocus={() => !focusPris.current}
                 onConfirmer={confirmer}
                 onAnnulerRappel={annulerRappel}
               />
             </div>
           )}
+
+          {ancienVisible && ancien && <AncienRappel ancien={ancien} maintenantMs={maintenantMs} />}
 
           {confirmeVider ? (
             <div role="group" aria-label={`Vider ${nom}`} className="flex flex-wrap items-center gap-2 rounded-lg border border-destructive/40 p-2.5 text-sm">
@@ -422,9 +469,10 @@ export function EnclosCard({
 }
 
 /* « changer » : cible d'au moins 44 px, nom complet pour le lecteur d'écran. */
-function BoutonChanger({ nom, onClick }: { nom: string; onClick: () => void }) {
+function BoutonChanger({ nom, onClick, boutonRef }: { nom: string; onClick: () => void; boutonRef?: React.Ref<HTMLButtonElement> }) {
   return (
     <button
+      ref={boutonRef}
       type="button"
       onClick={onClick}
       aria-label={`Changer la façon d’être rappelé pour l’enclos ${nom}`}
@@ -432,5 +480,14 @@ function BoutonChanger({ nom, onClick }: { nom: string; onClick: () => void }) {
     >
       changer
     </button>
+  );
+}
+
+/* L'appli ne peut pas retirer un événement d'agenda : elle le rappelle au joueur (#53). */
+function AncienRappel({ ancien, maintenantMs }: { ancien: AncienRappelType; maintenantMs: number }) {
+  return (
+    <p className="rounded-lg border border-warning/50 p-3 text-sm text-warning" data-testid="ancien-rappel">
+      Pense à supprimer l’ancien rappel de {formatHeure(ancien.at, maintenantMs)} dans {ancien.methode === "google" ? "Google Agenda" : "ton agenda"}.
+    </p>
   );
 }

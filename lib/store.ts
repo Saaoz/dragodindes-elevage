@@ -11,8 +11,8 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 import { parseKamas, type Prices } from "./calc";
 import {
   APP_ID, EXPORT_SCHEMA_VERSION, NB_ENCLOS, OBJECTIFS, PRICE_KEYS, SERVER_IDS, appDataSchema, calcSchema,
-  defaultAppData, enclosSchema, priceEntrySchema, rappelPushSchema, reglagesSchema, type AppData, type CalcState,
-  type Enclos, type MethodeRappel, type Objectif, type PriceKey, type PricesState, type RappelPush, type ServerId, type ServerPrices,
+  defaultAppData, enclosSchema, priceEntrySchema, rappelSchema, ancienRappelSchema, reglagesSchema, type AppData, type CalcState,
+  type Enclos, type MethodeRappel, type Objectif, type PriceKey, type PricesState, type Rappel, type AncienRappel, type ServerId, type ServerPrices,
 } from "./schema";
 
 /* ---------- clés localStorage et versions ----------
@@ -25,8 +25,10 @@ export const STORAGE_KEY = "dd-elevage-v3";
    4 : Optimakina par génération (opti2..opti10) ; 5 : rappel push par enclos (#16) ;
    6 : objectif par enclos et marge de rappel (#30) — aucune donnée à transformer (défauts du schéma),
    la version sert uniquement à passer les anciennes versions en lecture seule (`futureVersion`) ;
-   7 : méthode de rappel mémorisée (`reglages.methodeRappel`, #51). */
-export const STORAGE_VERSION = 7;
+   7 : méthode de rappel mémorisée (`reglages.methodeRappel`, #51) ;
+   8 : `enclos.rappel` devient { methode, at, messageId? } (agenda / Google Agenda en plus du push) et
+   `enclos.ancienRappel` (événement d'agenda laissé par la saisie précédente, #53). */
+export const STORAGE_VERSION = 8;
 export const LEGACY_V2_KEY = "dd-elevage-v2";
 export const LEGACY_V1_KEY = "dd-elevage-v1";
 
@@ -97,10 +99,31 @@ export function migrateRappels<T>(data: T): T {
   if (!isObj(data) || !Array.isArray(data.enclos)) return data;
   const enclos = data.enclos.map((e: unknown) => {
     if (!isObj(e)) return e;
-    const r = rappelPushSchema.nullable().safeParse(e.rappel ?? null);
+    const r = rappelSchema.nullable().safeParse(rappelNormalise(e.rappel));
     return { ...e, rappel: r.success ? r.data : null };
   });
   return { ...data, enclos } as T;
+}
+
+/* Rappel d'avant la v8 : { messageId, at } sans méthode = push, conservé tel quel avec sa méthode. */
+function rappelNormalise(r: unknown): unknown {
+  if (r === undefined) return null;
+  if (isObj(r) && !("methode" in r) && typeof r.messageId === "string") return { ...r, methode: "push" };
+  return r;
+}
+
+/* ---------- migration v7 → v8 : rappel agenda / Google et événement d'agenda à supprimer (#53) ----------
+   Un ancien rappel push { messageId, at } reçoit methode "push" (rien d'autre ne change) ; `ancienRappel` vaut
+   null s'il est absent ou illisible. Idempotent ; ne modifie pas son argument. */
+export function migrateRappelsAgenda<T>(data: T): T {
+  const d = migrateRappels(data);
+  if (!isObj(d) || !Array.isArray(d.enclos)) return d;
+  const enclos = d.enclos.map((e: unknown) => {
+    if (!isObj(e)) return e;
+    const a = ancienRappelSchema.nullable().safeParse(e.ancienRappel ?? null);
+    return { ...e, ancienRappel: a.success ? a.data : null };
+  });
+  return { ...d, enclos } as T;
 }
 
 /* ---------- migration v6 → v7 : méthode de rappel mémorisée (#51) ----------
@@ -113,11 +136,21 @@ export function migrateMethodeRappel<T>(data: T): T {
 }
 
 /* Le rappel est propre à l'appareil (subscription push locale) : jamais exporté ni importé. */
-const sansRappels = (enclos: readonly Enclos[]): Enclos[] => enclos.map((e) => ({ ...e, rappel: null }));
+const sansRappels = (enclos: readonly Enclos[]): Enclos[] => enclos.map((e) => ({ ...e, rappel: null, ancienRappel: null }));
 
-const enclosExporte = (e: Enclos): Omit<Enclos, "rappel"> => {
-  const { rappel, ...reste } = e;
+/* Événement d'agenda à supprimer à la main : l'ancien rappel agenda / Google qui disparaît ou change
+   (ressaisie, vidage, annulation, autre méthode) ; à défaut, celui déjà noté reste noté. */
+function ancienApres(avant: Enclos, apres: Rappel | null): AncienRappel | null {
+  const r = avant.rappel;
+  if (r && r.methode !== "push" && !(apres && apres.methode === r.methode && apres.at === r.at))
+    return { methode: r.methode, at: r.at };
+  return avant.ancienRappel;
+}
+
+const enclosExporte = (e: Enclos): Omit<Enclos, "rappel" | "ancienRappel"> => {
+  const { rappel, ancienRappel, ...reste } = e;
   void rappel;
+  void ancienRappel;
   return reste;
 };
 
@@ -290,8 +323,8 @@ export interface Actions {
   ageDays: (server: ServerId, key: PriceKey) => number | null;
   /* Enregistre (ou efface avec null) le rappel push de l'enclos i, seulement si l'enclos n'a pas été
      ressaisi entre-temps (même `saisieLe`) ; false sinon, ou en lecture seule (version future). */
-  setRappel: (i: number, saisieLe: number | null, rappel: RappelPush | null) => boolean;
-  /* Remplace l'enclos i (validé ; le rappel push est remis à null : c'est l'appelant qui le replanifie). */
+  setRappel: (i: number, saisieLe: number | null, rappel: Rappel | null) => boolean;
+  /* Remplace l'enclos i (validé ; le rappel est remis à null et, s'il était agenda / Google, noté dans `ancienRappel` : c'est l'appelant qui replanifie le push). */
   setEnclos: (i: number, e: Enclos) => boolean;
   /* Objectif de l'enclos i (#4 : enregistré, n'est plus perdu au rechargement). */
   setObjectif: (i: number, o: Objectif) => boolean;
@@ -404,16 +437,16 @@ function makeCreator(demo: boolean, initial: () => AppData): StateCreator<AppSto
       if (get().futureVersion) return false;
       const e = get().enclos[i];
       if (!e || e.saisieLe !== saisieLe) return false;
-      const r = rappelPushSchema.nullable().safeParse(rappel);
+      const r = rappelSchema.nullable().safeParse(rappel);
       if (!r.success) return false;
-      set({ enclos: get().enclos.map((x, k) => (k === i ? { ...x, rappel: r.data } : x)) });
+      set({ enclos: get().enclos.map((x, k) => (k === i ? { ...x, rappel: r.data, ancienRappel: ancienApres(x, r.data) } : x)) });
       return true;
     },
     setEnclos: (i, e) => {
       if (!Number.isInteger(i) || i < 0 || i >= NB_ENCLOS) return false;
-      const r = enclosSchema.safeParse({ ...e, rappel: null });
+      const r = enclosSchema.safeParse({ ...e, rappel: null, ancienRappel: null });
       if (!r.success) return false;
-      set({ enclos: get().enclos.map((x, k) => (k === i ? r.data : x)) });
+      set({ enclos: get().enclos.map((x, k) => (k === i ? { ...r.data, ancienRappel: ancienApres(x, null) } : x)) });
       return true;
     },
     setObjectif: (i, o) => {
@@ -513,7 +546,8 @@ export const useStore = create<AppStore>()(
       const v4 = version < 4 ? migrateOptimakina(v1) : v1;
       /* v5 → v6 : rien à transformer (objectif et reglages.margeRappelMin ont des défauts au schéma). */
       const v5 = version < 5 ? migrateRappels(v4) : v4;
-      return (version < 7 ? migrateMethodeRappel(v5) : v5) as AppStore;
+      const v7 = version < 7 ? migrateMethodeRappel(v5) : v5;
+      return (version < 8 ? migrateRappelsAgenda(v7) : v7) as AppStore;
     },
     /* Toujours nettoyer ce qui vient du disque, même à version égale. */
     merge: (persisted, current) => ({ ...current, ...sanitize(persisted) }),

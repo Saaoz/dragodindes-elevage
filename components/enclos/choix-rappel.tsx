@@ -20,8 +20,11 @@ export function ChoixRappel({
   rappelActif,
   onConfirmer,
   onAnnulerRappel,
+  finalFocus,
 }: {
   open: boolean;
+  /** Où va le focus à la fermeture (true : là où il était ; false : l'appelant le place lui-même). */
+  finalFocus: () => boolean;
   onOpenChange: (ouvert: boolean) => void;
   nom: string;
   /** Heure du rappel, déjà formatée (« 21 h 24 »). */
@@ -43,6 +46,7 @@ export function ChoixRappel({
         <Dialog.Backdrop className="fixed inset-0 z-50 bg-black/50" />
         <Dialog.Popup
           initialFocus={focusInitial}
+          finalFocus={finalFocus}
           data-testid="choix-rappel"
           className="fixed top-1/2 left-1/2 z-50 flex max-h-[calc(100dvh-2rem)] w-[calc(100vw-2rem)] max-w-md -translate-x-1/2 -translate-y-1/2 flex-col gap-4 overflow-y-auto rounded-xl border bg-card p-5 text-card-foreground shadow-lg outline-none"
         >
