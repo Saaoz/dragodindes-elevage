@@ -44,7 +44,7 @@ export function EnclosPanel() {
   useEffect(() => {
     if (!pret) return;
     document.title = prochain
-      ? `${formatCompteARebours((prochain.quandMs - maintenant) / 1000)} · ${enclos[vues[0].index].nom || `Enclos ${vues[0].index + 1}`} · ${TITRE}`
+      ? `${prochain.quandMs <= maintenant ? "En retard" : formatCompteARebours((prochain.quandMs - maintenant) / 1000)} · ${enclos[vues[0].index].nom || `Enclos ${vues[0].index + 1}`} · ${TITRE}`
       : TITRE;
   }, [pret, prochain, maintenant, enclos, vues]);
   useEffect(() => () => void (document.title = "Élevage de dragodindes"), []);

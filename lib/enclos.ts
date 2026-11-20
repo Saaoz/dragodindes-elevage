@@ -145,16 +145,34 @@ export function remplacerEnclos(liste: readonly Enclos[], i: number, e: Enclos):
 export interface RetourEnclos {
   /** Premier événement à surveiller : sortie de zone, première borne ±5 000 ou jauge vide. */
   evenement: EvenementSerenite;
-  /** Heure de l'événement (ms). */
+  /** Heure de l'événement (ms), calculée depuis la SAISIE : elle reste juste une fois passée (#31). */
   quandMs: number;
+}
+
+/** Une monture atteint ±5 000 avant que la jauge soit vide : des points sont (ou seront) gaspillés. */
+export interface AlerteEnclos {
+  monture: number;
+  valeur: number;
+  /** Heure (ms) à laquelle la monture atteint (ou a atteint) ±5 000, depuis la saisie. */
+  quandMs: number;
+  /** Points de jauge gaspillés pour elle au total, de la borne jusqu'à la jauge vide. */
+  gaspille: number;
+  /** La borne est déjà atteinte (heure passée). */
+  passee: boolean;
+  /** Points déjà gaspillés pour elle à l'instant considéré (0 avant la borne, au plus `gaspille`). */
+  gaspilleDeja: number;
 }
 
 export interface VueEnclos {
   index: number;
+  /** Plan à partir de l'état ESTIMÉ maintenant (sérénités, niveau, conseil de remplissage). */
   plan: PlanSerenite & { etat: EtatEstime };
   retour: RetourEnclos | null;
-  /** Une monture atteindra ±5 000 avant que la jauge soit vide : des points seront gaspillés. */
-  alerte: { monture: number; valeur: number; quandMs: number; gaspille: number } | null;
+  alerte: AlerteEnclos | null;
+  /** Retour dépassé : secondes écoulées depuis l'heure de retour (0 pile à l'heure) ; null avant (#31). */
+  retardS: number | null;
+  /** Heure (ms) à laquelle la jauge de sérénité est (ou sera) vide, depuis la saisie ; null sans jauge. */
+  jaugeVideMs: number | null;
   /** Heure à laquelle l'autre jauge sera vide (ms), si renseignée. */
   autreVideMs: number | null;
 }
@@ -167,19 +185,75 @@ export function vueEnclos(
   maintenantMs: number,
   objectif: Objectif = enclos.objectif ?? "aucun",
 ): VueEnclos {
-  const plan = planEnclos(enclos, maintenantMs, { zone: ZONES[objectif] });
-  const actif = enclos.saisieLe !== null && plan.etat.sens !== null;
-  const ev = actif ? plan.evenements.find((e) => TYPES_RETOUR.has(e.type)) : undefined;
-  const retour = ev ? { evenement: ev, quandMs: Math.round(maintenantMs + ev.temps * 1000) } : null;
-  const borne = actif ? plan.evenements.find((e) => e.type === "premiereBorne") : undefined;
-  const gaspille = borne && borne.monture !== null ? (plan.gaspillage[borne.monture] ?? 0) : 0;
-  const alerte =
-    borne && borne.monture !== null && borne.valeur !== null && gaspille > 0
-      ? { monture: borne.monture, valeur: borne.valeur, quandMs: Math.round(maintenantMs + borne.temps * 1000), gaspille }
-      : null;
+  const options = { zone: ZONES[objectif] };
+  const plan = planEnclos(enclos, maintenantMs, options);
+  const saisieLe = enclos.saisieLe;
+  /* Les événements sont datés depuis l'état SAISI, pas depuis l'état estimé maintenant : sinon un
+     événement déjà passé serait toujours daté de « maintenant » (« depuis 0 s »), ou disparaîtrait
+     (jauge vidée). Avant l'heure, les deux calculs donnent les mêmes heures (#31). */
+  const depuisSaisie = saisieLe !== null && enclos.jaugeSerenite !== null ? planEnclos(enclos, saisieLe, options) : null;
+  const heure = (temps: number) => Math.round((saisieLe ?? maintenantMs) + temps * 1000);
+
+  const ev = depuisSaisie?.evenements.find((e) => TYPES_RETOUR.has(e.type));
+  const retour = ev ? { evenement: ev, quandMs: heure(ev.temps) } : null;
+  const retardS = retour && maintenantMs >= retour.quandMs ? (maintenantMs - retour.quandMs) / 1000 : null;
+
+  const borne = depuisSaisie?.evenements.find((e) => e.type === "premiereBorne");
+  const gaspille = borne && borne.monture !== null ? (depuisSaisie?.gaspillage[borne.monture] ?? 0) : 0;
+  let alerte: AlerteEnclos | null = null;
+  if (borne && borne.monture !== null && borne.valeur !== null && gaspille > 0) {
+    const quandMs = heure(borne.temps);
+    alerte = {
+      monture: borne.monture,
+      valeur: borne.valeur,
+      quandMs,
+      gaspille,
+      passee: maintenantMs >= quandMs,
+      gaspilleDeja: Math.min(gaspille, Math.max(0, Math.round(plan.etat.pointsConsommes - borne.points))),
+    };
+  }
+
+  const jaugeVideMs = depuisSaisie && depuisSaisie.tempsVide > 0 ? heure(depuisSaisie.tempsVide) : null;
   const autreVideMs =
-    enclos.autreJauge && enclos.saisieLe !== null ? Math.round(enclos.saisieLe + tempsVidage(enclos.niveauAutre) * 1000) : null;
-  return { index, plan, retour, alerte, autreVideMs };
+    enclos.autreJauge && saisieLe !== null ? Math.round(saisieLe + tempsVidage(enclos.niveauAutre) * 1000) : null;
+  return { index, plan, retour, alerte, retardS, jaugeVideMs, autreVideMs };
+}
+
+/* ---------- retour dépassé (#31) ---------- */
+const nomJauge = (sens: SensJauge | null) => `Sérénité ${sens === "-" ? "−" : "+"}`;
+
+/** Ce qui s'est passé à l'heure de retour dépassée, au passé et avec la vraie heure ; null si pas en retard. */
+export function libelleRetard(vue: VueEnclos, maintenantMs: number): string | null {
+  if (vue.retardS === null || !vue.retour) return null;
+  const { evenement: ev, quandMs } = vue.retour;
+  const h = formatHeure(quandMs, maintenantMs);
+  const m = (ev.monture ?? 0) + 1;
+  switch (ev.type) {
+    case "premiereBorne": {
+      const deja = vue.alerte?.gaspilleDeja ?? 0;
+      return `la monture ${m} est à ${formatSerenite(ev.valeur ?? 0)} depuis ${h}${deja > 0 ? `, ${formatNombre(deja)} points de jauge gaspillés` : ""}`;
+    }
+    case "sortieZone":
+      return `la monture ${m} est sortie de la zone Maturité à ${h}`;
+    default:
+      return `jauge ${nomJauge(vue.plan.etat.sens)} vide depuis ${h}`;
+  }
+}
+
+/** Quoi faire quand l'heure de retour est passée : il n'y a plus de rappel à prévoir, il faut ressaisir. */
+export const CONSEIL_RETARD =
+  "Retourne à l’enclos, regarde la sérénité des montures et le niveau des jauges, puis clique « Je quitte l’enclos » : une nouvelle heure de retour sera calculée.";
+
+/** Texte de l'alerte ±5 000 : au futur avant la borne, au passé (avec les points déjà gaspillés) après. */
+export function texteAlerte(alerte: AlerteEnclos, maintenantMs: number): string {
+  const h = formatHeure(alerte.quandMs, maintenantMs);
+  const qui = `la monture ${alerte.monture + 1}`;
+  if (!alerte.passee)
+    return `${qui} atteindra ${formatSerenite(alerte.valeur)} à ${h}. Si tu reviens plus tard, ${formatNombre(alerte.gaspille)} points de jauge sont gaspillés pour elle.`;
+  const reste = alerte.gaspille - alerte.gaspilleDeja;
+  return `${qui} a atteint ${formatSerenite(alerte.valeur)} à ${h} : ${formatNombre(alerte.gaspilleDeja)} points de jauge gaspillés pour elle${
+    reste > 0 ? ` depuis, jusqu’à ${formatNombre(alerte.gaspille)} si tu ne reviens pas` : ""
+  }.`;
 }
 
 /** Le plus urgent en haut ; sans retour à prévoir, à la fin (ordre d'origine conservé). */
@@ -200,7 +274,8 @@ export function heureRappel(retourMs: number, margeMin: number, maintenantMs: nu
 export const libelleMarge = (margeMin: number): string =>
   margeMin <= 0 ? "à l’heure exacte" : `${margeMin} min avant`;
 
-/** Le plus urgent d'abord, limité aux enclos saisis qui ont une heure de retour (tableau de bord). */
+/** Le plus urgent d'abord, limité aux enclos saisis qui ont une heure de retour (tableau de bord).
+    Un enclos en retard garde son heure de retour passée : il reste donc en tête (#31). */
 export function enclosUrgents(liste: readonly Enclos[], maintenantMs: number, max = 3): VueEnclos[] {
   return trierParUrgence(liste.map((e, i) => vueEnclos(e, i, maintenantMs)))
     .filter((v) => v.retour !== null)

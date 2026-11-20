@@ -20,6 +20,8 @@ export function contenuRappel(
 ): ContenuRappel {
   const vue = vueEnclos(enclos, index, maintenantMs, objectif);
   if (!vue.retour) return { ok: false, raison: "Pas d’heure de retour à prévoir pour cet enclos." };
+  /* Jamais de notification pour une heure déjà passée (#31) : il faut ressaisir l'enclos. */
+  if (vue.retardS !== null) return { ok: false, raison: "Heure de retour dépassée : ressaisis l’enclos pour une nouvelle heure." };
   /* Même marge que l'agenda (réglable) : on prévient quelques minutes avant l'échéance. */
   const at = Math.round(vue.retour.quandMs - Math.max(0, margeS) * 1000);
   if (at - maintenantMs < DELAI_MIN_MS) return { ok: false, raison: "Le retour est imminent : pas de notification." };

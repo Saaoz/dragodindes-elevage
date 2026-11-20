@@ -129,7 +129,8 @@ export interface EvenementSerenite {
  * - `dejaAtteint` : rien à mettre, l'objectif est déjà rempli ;
  * - `tropEcartees` : sérénités trop écartées, voir `groupes` ;
  * - `sensIncoherent` : la jauge active éloigne le groupe de l'objectif, voir `sensConseille` ;
- * - `horsZone` : une monture est déjà au-delà de la zone dans le sens de la jauge ;
+ * - `horsZone` : une monture est déjà au-delà de la zone dans le sens de la jauge (sans zone : déjà à
+ *   ±5 000, chaque point de plus est gaspillé pour elle, #31) ;
  * - `aucuneMonture` : liste vide.
  */
 export type StatutRemplissage = "ok" | "dejaAtteint" | "tropEcartees" | "sensIncoherent" | "horsZone" | "aucuneMonture";
@@ -396,8 +397,9 @@ function calculerRemplissage(
   let groupes: number[][] | null = null;
 
   if (sansObjectif) {
-    /* Sans objectif : le maximum utile sans gaspiller (la première monture s'arrête à ±5 000). */
-    statut = pointsMax > 0 ? "ok" : "dejaAtteint";
+    /* Sans objectif : le maximum utile sans gaspiller (la première monture s'arrête à ±5 000).
+       Une monture déjà à la borne n'est pas un « objectif atteint » : elle gaspille la jauge (#31). */
+    statut = pointsMax > 0 ? "ok" : "horsZone";
     points = pointsMax;
   } else if (
     (cible !== undefined && pointsMinBrut < 0) ||
@@ -448,12 +450,15 @@ function calculerRemplissage(
       message = `La jauge ${nomJauge} éloigne les montures de l'objectif : utilise ${autre === "+" ? "Sérénité +" : "Sérénité −"}.`;
       break;
     case "horsZone":
-      message = `Une monture est déjà hors de la zone voulue : ne mets pas de ${nomJauge}, déplace-la ou utilise ${autre === "+" ? "Sérénité +" : "Sérénité −"}.`;
+      message = !zone
+        ? `Une monture est déjà à ${sens === "+" ? "+" : "−"}${fmt(SERENITE_MAX)} : chaque point de ${nomJauge} est gaspillé pour elle. N'en remets pas : sépare-la des autres ou utilise ${autre === "+" ? "Sérénité +" : "Sérénité −"}.`
+        : `Une monture est déjà hors de la zone voulue : ne mets pas de ${nomJauge}, déplace-la ou utilise ${autre === "+" ? "Sérénité +" : "Sérénité −"}.`;
       break;
     default:
       message = "";
   }
-  if (excedent > 0 && statut !== "sensIncoherent")
+  /* déjà à ±5 000 (sans zone) : le message dit déjà que les points restants sont gaspillés */
+  if (excedent > 0 && statut !== "sensIncoherent" && !(statut === "horsZone" && !zone))
     message += ` Attention : la jauge contient ${fmt(excedent)} points de trop, reviens la couper à temps.`;
 
   return {
