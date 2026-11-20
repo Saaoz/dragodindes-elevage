@@ -11,6 +11,7 @@ import {
 } from "@/lib/schema";
 import {
   planEnclos,
+  pointsConsommes,
   SERENITE_MAX,
   tempsVidage,
   ZONE_MATURITE,
@@ -84,13 +85,18 @@ export interface Brouillon {
 export function brouillonDe(enclos: Enclos, etat?: EtatEstime): Brouillon {
   const serenites = etat ? etat.serenites : enclos.montures.map((m) => m.serenite);
   const niveau = etat ? etat.niveauJauge : enclos.niveauSerenite;
+  /* L'autre jauge se vide aussi depuis la saisie : avec un état estimé, on repart de son niveau estimé
+     (etat.tempsEcoule = (maintenant − saisieLe) / 1000). */
+  const niveauAutre = etat
+    ? Math.max(0, enclos.niveauAutre - pointsConsommes(enclos.niveauAutre, etat.tempsEcoule))
+    : enclos.niveauAutre;
   return {
     nom: enclos.nom,
     serenites: serenites.length ? serenites.map((s) => String(Math.round(s))) : [""],
     sens: enclos.jaugeSerenite,
     niveau: enclos.jaugeSerenite ? String(Math.round(niveau)) : "",
     autre: enclos.autreJauge,
-    niveauAutre: enclos.autreJauge ? String(enclos.niveauAutre) : "",
+    niveauAutre: enclos.autreJauge ? String(Math.round(niveauAutre)) : "",
   };
 }
 

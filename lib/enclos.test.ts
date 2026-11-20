@@ -20,6 +20,7 @@ import {
   vueEnclos,
 } from "@/lib/enclos";
 import { defaultEnclos, enclosSchema } from "@/lib/schema";
+import { pointsConsommes } from "@/lib/serenity";
 
 const T0 = new Date(2026, 10, 20, 21, 0, 0).getTime();
 /* Les espaces insécables (#32) ne changent pas le texte : on les ramène à des espaces pour comparer. */
@@ -87,6 +88,44 @@ describe("enclosDeBrouillon", () => {
     const b = brouillonDe(r.enclos);
     expect(b.serenites).toEqual(["-3000"]);
     expect(b.niveau).toBe("200000");
+  });
+  it("brouillonDe avec état estimé : l'autre jauge repart de son niveau estimé", () => {
+    const e = enclosSchema.parse({
+      nom: "Test",
+      montures: [{ serenite: 0 }],
+      jaugeSerenite: "+",
+      niveauSerenite: 200000,
+      autreJauge: "Endurance",
+      niveauAutre: 90000,
+      saisieLe: T0 - 20 * 60_000,
+    });
+    const etat = vueEnclos(e, 0, T0).plan.etat;
+    const attendu = 90000 - Math.round(pointsConsommes(90000, 1200));
+    expect(brouillonDe(e, etat).niveauAutre).toBe(String(attendu));
+    expect(attendu).toBeLessThan(90000);
+  });
+  it("brouillonDe avec état estimé : jauge autre vidée → 0", () => {
+    const e = enclosSchema.parse({
+      nom: "Test",
+      montures: [{ serenite: 0 }],
+      jaugeSerenite: "+",
+      niveauSerenite: 200000,
+      autreJauge: "Endurance",
+      niveauAutre: 1000,
+      saisieLe: T0 - 60 * 60_000,
+    });
+    const etat = vueEnclos(e, 0, T0).plan.etat;
+    expect(brouillonDe(e, etat).niveauAutre).toBe("0");
+  });
+  it("brouillonDe sans état estimé : niveau de l'autre jauge inchangé", () => {
+    const e = enclosSchema.parse({
+      nom: "Test",
+      montures: [{ serenite: 0 }],
+      autreJauge: "Endurance",
+      niveauAutre: 90000,
+      saisieLe: T0 - 20 * 60_000,
+    });
+    expect(brouillonDe(e).niveauAutre).toBe("90000");
   });
 });
 
