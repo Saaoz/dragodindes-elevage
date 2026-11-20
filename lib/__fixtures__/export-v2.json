@@ -1,0 +1,32 @@
+{
+  "app": "dd-elevage",
+  "schemaVersion": 2,
+  "exportedAt": "2026-11-10T18:42:11.000Z",
+  "data": {
+    "schema": 2,
+    "server": "Imagiro",
+    "matB": "gen1",
+    "theme": "light",
+    "calc": {
+      "target": 6, "genA": 5, "genB": 1, "lvlA": 120, "lvlB": 80,
+      "opti": true, "optiBonus": 10, "repro": true,
+      "origin": "hdv", "parentsMode": "sell", "sterileSell": 15000,
+      "fuel": 2500, "priceTarget": 0, "priceFail": 0, "countGenetons": true
+    },
+    "prices": {
+      "Imagiro": {
+        "g1": { "v": 21000, "t": 1762800000000 },
+        "g4": { "v": 165000, "t": 1762800000000 },
+        "g5": { "v": 310000, "t": 1762886400000 },
+        "g6": { "v": 1250000, "t": 1762886400000 },
+        "neurone": { "v": 24000, "t": 1762972800000 },
+        "optimakina": { "v": 150000, "t": 1762972800000 },
+        "genetons": { "v": 3200, "t": 1762972800000 }
+      },
+      "Orukam": {
+        "g5": { "v": 295000, "t": 1762500000000 },
+        "g6": { "v": 1180000, "t": 1762500000000 }
+      }
+    }
+  }
+}
