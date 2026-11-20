@@ -1,6 +1,6 @@
-/* Service worker écrit à la main : app shell hors ligne + squelette push (#16).
+/* Service worker écrit à la main : app shell hors ligne + notifications push (#16).
    Changer VERSION invalide les anciens caches. */
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL_CACHE = `elevage-shell-${VERSION}`;
 const ASSET_CACHE = `elevage-assets-${VERSION}`;
 const PAGE_CACHE = `elevage-pages-${VERSION}`;
@@ -115,8 +115,11 @@ self.addEventListener("fetch", (event) => {
   }
 });
 
-// --- Push (squelette, complété par #16) ---
-// Payload JSON attendu : { "titre": "...", "corps": "...", "url": "/..." }
+// --- Push (#16) ---
+// Payload JSON envoyé par /api/reminders/fire : { "titre", "corps", "url": "/enclos#enclos-N", "tag" }
+// Sur iOS, CHAQUE push doit afficher une notification (sinon Safari finit par révoquer l'abonnement).
+const cheminInterne = (u) => (typeof u === "string" && /^\/(?!\/)/.test(u) ? u : "/enclos");
+
 self.addEventListener("push", (event) => {
   let data = {};
   try {
@@ -124,34 +127,40 @@ self.addEventListener("push", (event) => {
   } catch {
     data = { corps: event.data ? event.data.text() : "" };
   }
-  const title = data.titre || "Élevage de dragodindes";
-  event.waitUntil(
-    self.registration.showNotification(title, {
-      body: data.corps || "",
-      icon: "/icons/icon-192.png",
-      badge: "/icons/icon-192.png",
-      data: { url: data.url || "/" },
-    }),
-  );
+  const title = (typeof data.titre === "string" && data.titre) || "Élevage de dragodindes";
+  const options = {
+    body: typeof data.corps === "string" ? data.corps : "",
+    icon: "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    data: { url: cheminInterne(data.url) },
+    timestamp: Date.now(),
+  };
+  if (typeof data.tag === "string" && data.tag) {
+    options.tag = data.tag; // une notification plus récente du même enclos remplace l'ancienne
+    options.renotify = true;
+  }
+  event.waitUntil(self.registration.showNotification(title, options));
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const target = new URL(
-    (event.notification.data && event.notification.data.url) || "/",
-    self.location.origin,
-  ).href;
+  const target = new URL(cheminInterne(event.notification.data && event.notification.data.url), self.location.origin);
   event.waitUntil(
     (async () => {
       const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      for (const w of wins) {
-        if (new URL(w.url).origin === self.location.origin && "focus" in w) {
-          await w.focus();
-          if ("navigate" in w) await w.navigate(target);
+      // Une fenêtre de l'appli est déjà ouverte : on la réutilise (de préférence celle déjà sur /enclos).
+      const memeOrigine = wins.filter((w) => new URL(w.url).origin === self.location.origin);
+      const w = memeOrigine.find((x) => new URL(x.url).pathname === target.pathname) || memeOrigine[0];
+      if (w) {
+        try {
+          const f = (await w.focus()) || w;
+          if (new URL(f.url).href !== target.href) await f.navigate(target.href);
           return;
+        } catch {
+          /* fenêtre non contrôlée par ce service worker : on en ouvre une nouvelle */
         }
       }
-      await self.clients.openWindow(target);
+      await self.clients.openWindow(target.href);
     })(),
   );
 });

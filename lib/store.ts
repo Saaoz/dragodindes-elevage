@@ -11,15 +11,15 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 import { parseKamas, type Prices } from "./calc";
 import {
   APP_ID, EXPORT_SCHEMA_VERSION, PRICE_KEYS, SERVER_IDS, appDataSchema, calcSchema, defaultAppData,
-  priceEntrySchema, type AppData, type CalcState, type PriceKey, type PricesState, type ServerId,
-  type ServerPrices,
+  priceEntrySchema, rappelPushSchema, type AppData, type CalcState, type Enclos, type PriceKey, type PricesState,
+  type RappelPush, type ServerId, type ServerPrices,
 } from "./schema";
 
 /* ---------- clés localStorage et versions ----------
    Clé v3 propre. Les clés v2/v1 sont LUES (jamais modifiées) pour migrer automatiquement les
    données de la v2 si elle a tourné sur la même origine (/legacy est servi par l'appli). */
 export const STORAGE_KEY = "dd-elevage-v3";
-export const STORAGE_VERSION = 4; // 4 : Optimakina par génération (opti2..opti10)
+export const STORAGE_VERSION = 5; // 4 : Optimakina par génération (opti2..opti10) ; 5 : rappel push par enclos (#16)
 export const LEGACY_V2_KEY = "dd-elevage-v2";
 export const LEGACY_V1_KEY = "dd-elevage-v1";
 
@@ -83,9 +83,31 @@ export function migrateOptimakina<T>(data: T): T {
   return { ...data, prices } as T;
 }
 
+/* ---------- migration v4 → v5 : rappel push par enclos (#16) ----------
+   Chaque enclos reçoit `rappel: null` s'il n'en a pas ; un rappel illisible est remis à null (il ne
+   doit jamais faire perdre l'enclos entier). Idempotent ; ne modifie pas son argument. */
+export function migrateRappels<T>(data: T): T {
+  if (!isObj(data) || !Array.isArray(data.enclos)) return data;
+  const enclos = data.enclos.map((e: unknown) => {
+    if (!isObj(e)) return e;
+    const r = rappelPushSchema.nullable().safeParse(e.rappel ?? null);
+    return { ...e, rappel: r.success ? r.data : null };
+  });
+  return { ...data, enclos } as T;
+}
+
+/* Le rappel est propre à l'appareil (subscription push locale) : jamais exporté ni importé. */
+const sansRappels = (enclos: readonly Enclos[]): Enclos[] => enclos.map((e) => ({ ...e, rappel: null }));
+
+const enclosExporte = (e: Enclos): Omit<Enclos, "rappel"> => {
+  const { rappel, ...reste } = e;
+  void rappel;
+  return reste;
+};
+
 /* ---------- nettoyage TOLÉRANT (données persistées localement) : repli champ par champ ---------- */
 export function sanitize(raw: unknown): AppData {
-  const o = migrateOptimakina(isObj(raw) ? raw : {});
+  const o = migrateRappels(migrateOptimakina(isObj(raw) ? raw : {}));
   const full = appDataSchema.safeParse(o);
   if (full.success) return full.data;
 
@@ -160,7 +182,11 @@ export function parseExport(text: string): ParsedImport {
     const i = r.error.issues[0];
     return { ok: false, msg: `Données invalides (${i.path.join(".") || "racine"} : ${i.message}).` };
   }
-  return { ok: true, data: r.data, hasEnclos: isObj(data) && "enclos" in data };
+  return {
+    ok: true,
+    data: { ...r.data, enclos: sansRappels(r.data.enclos) },
+    hasEnclos: isObj(data) && "enclos" in data,
+  };
 }
 
 /* ---------- aides pures sur les prix ---------- */
@@ -242,6 +268,9 @@ export interface Actions {
   exportJSON: () => string;
   importJSON: (text: string) => Result;
   ageDays: (server: ServerId, key: PriceKey) => number | null;
+  /* Enregistre (ou efface avec null) le rappel push de l'enclos i, seulement si l'enclos n'a pas été
+     ressaisi entre-temps (même `saisieLe`) ; false sinon, ou en lecture seule (version future). */
+  setRappel: (i: number, saisieLe: number | null, rappel: RappelPush | null) => boolean;
   oldestAge: (server: ServerId) => number | null;
 }
 export type AppStore = AppData & Actions;
@@ -321,7 +350,12 @@ function makeCreator(demo: boolean, initial: () => AppData): StateCreator<AppSto
     },
     exportJSON: () =>
       JSON.stringify(
-        { app: APP_ID, schemaVersion: EXPORT_SCHEMA_VERSION, exportedAt: new Date().toISOString(), data: pickData(get()) },
+        {
+          app: APP_ID,
+          schemaVersion: EXPORT_SCHEMA_VERSION,
+          exportedAt: new Date().toISOString(),
+          data: { ...pickData(get()), enclos: get().enclos.map(enclosExporte) },
+        },
         null,
         2,
       ),
@@ -334,6 +368,15 @@ function makeCreator(demo: boolean, initial: () => AppData): StateCreator<AppSto
       return { ok: true, msg: "Import terminé." };
     },
     ageDays: (server, key) => ageDays(get().prices, server, key),
+    setRappel: (i, saisieLe, rappel) => {
+      if (get().futureVersion) return false;
+      const e = get().enclos[i];
+      if (!e || e.saisieLe !== saisieLe) return false;
+      const r = rappelPushSchema.nullable().safeParse(rappel);
+      if (!r.success) return false;
+      set({ enclos: get().enclos.map((x, k) => (k === i ? { ...x, rappel: r.data } : x)) });
+      return true;
+    },
     oldestAge: (server) => oldestAge(get().prices, server),
   });
 }
@@ -406,8 +449,9 @@ export const useStore = create<AppStore>()(
     partialize: (s) => pickData(s as AppData),
     migrate: (persisted, version) => {
       if (version > STORAGE_VERSION) throw new Error("Données créées par une version plus récente de l'outil.");
-      const v4 = version === 1 ? migrateV1(persisted) : persisted;
-      return (version < 4 ? migrateOptimakina(v4) : v4) as AppStore;
+      const v1 = version === 1 ? migrateV1(persisted) : persisted;
+      const v4 = version < 4 ? migrateOptimakina(v1) : v1;
+      return (version < 5 ? migrateRappels(v4) : v4) as AppStore;
     },
     /* Toujours nettoyer ce qui vient du disque, même à version égale. */
     merge: (persisted, current) => ({ ...current, ...sanitize(persisted) }),
