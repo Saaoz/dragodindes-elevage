@@ -1,0 +1,9 @@
+# Fichiers locaux / OS / éditeur
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+# Claude Code (config perso)
+.claude/settings.local.json
+# Exports de prix personnels
+dragodindes-prix-*.json

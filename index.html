@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Élevage Dragodindes — Dofus 3.5 (outil interne)</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Aller au contenu</a>
+<header>
+  <h1>🦃 Élevage de dragodindes</h1>
+  <span class="sub">Outil interne · Dofus 3.5 (refonte du 3 mars 2026)</span>
+  <div class="srv">
+    <span id="saveState" class="save" role="status" aria-live="polite"></span>
+    <label for="srvGlobal" style="margin:0">Serveur actif</label><select id="srvGlobal" style="width:auto"></select>
+    <button class="btn sm" id="btnTheme" aria-label="Changer de thème">☀</button>
+  </div>
+</header>
+<nav id="nav" role="tablist" aria-label="Sections">
+  <button role="tab" data-tab="vue" class="on" aria-selected="true">Vue d'ensemble</button>
+  <button role="tab" data-tab="capture" aria-selected="false">Capture &amp; sauvages</button>
+  <button role="tab" data-tab="repro" aria-selected="false">Reproduction</button>
+  <button role="tab" data-tab="croise" aria-selected="false">Croisements</button>
+  <button role="tab" data-tab="renta" aria-selected="false">Rentabilité / serveurs</button>
+  <button role="tab" data-tab="focus" aria-selected="false">Quoi focus</button>
+  <button role="tab" data-tab="outils" aria-selected="false">Outils</button>
+  <button role="tab" data-tab="src" aria-selected="false">Sources &amp; doutes</button>
+</nav>
+<main id="main">
+
+<!-- ================= VUE D'ENSEMBLE ================= -->
+<section id="tab-vue" class="on">
+  <h2>Ce que la refonte a changé</h2>
+  <p class="lead">La 3.5 a transformé l'élevage en vrai métier, simplifié à mort et rendu planifiable : plus de gestation, plus de fatigue, un bébé par accouplement.</p>
+  <div class="chips">
+    <span class="chip">Sortie : <b>3 mars 2026</b></span>
+    <span class="chip">Niveau max monture : <b>200</b></span>
+    <span class="chip">Bébé par accouplement : <b>1</b></span>
+    <span class="chip">Enclos : <b>6 × 10 places</b></span>
+    <span class="chip">Fécondité : <b>20 000</b> × 3 jauges</span>
+  </div>
+  <div class="grid">
+    <div class="card"><h4>❌ Supprimé</h4><ul>
+      <li>Certificats de monture (la dragodinde est un objet équipable)</li>
+      <li>Énergie et fatigue</li>
+      <li>Enclos privés (remboursés au prix d'achat de base)</li>
+      <li>Gestation et fenêtre de 7 jours : le bébé naît à l'accouplement</li>
+      <li>Objets d'élevage classiques → compensés en poussière d'élevage (0,55 par point de durabilité restant)</li>
+      <li>Quête du donjon Koulosse : le sort de capture vient du filet</li>
+    </ul></div>
+    <div class="card"><h4>✅ Ajouté</h4><ul>
+      <li>Métier <b>Éleveur</b> (niveau 1 à 200)</li>
+      <li>Montures niveau 200 (Vitalité 300 au niv. 100, 400 au niv. 200)</li>
+      <li>Filets de capture (4 types), interface d'élevage accessible partout</li>
+      <li>Jauges d'enclos + carburants, sérénité</li>
+      <li>Génération cible, Makinas, clonage, extraction</li>
+      <li>Génétons → parchemins de caractéristiques</li>
+      <li>Succès d'élevage (38 succès, 1 211 points)</li>
+    </ul></div>
+    <div class="card"><h4>⚠ Vieilles montures</h4>
+      <p>Les montures possédées avant la 3.4 sont devenues <b>séniles</b> : montables et équipables, mais ni élevables, ni accouplables. Extraction : une seule ressource quelle que soit la génération.</p>
+    </div>
+    <div class="card"><h4>📅 Bonus Almanax du mois</h4><p id="almanaxMois"></p>
+      <p style="color:var(--mut);font-size:13px">Bonus actif le 10 du mois. À planifier autour des accouplements importants.</p></div>
+  </div>
+  <div class="ok"><b>Verdict cash :</b> le système est devenu mécanique, donc calculable. L'argent se fait sur trois leviers : monter les générations, extraire les neurones des parents stériles, et convertir les Génétons en parchemins. Mais je n'ai trouvé <b>aucun prix de marché fiable</b> post-3.5 : c'est pour ça que l'onglet Rentabilité te fait saisir tes propres prix HDV, par serveur.</div>
+</section>
+
+<!-- ================= CAPTURE ================= -->
+<section id="tab-capture">
+  <h2>Capture & dragodindes sauvages</h2>
+  <p class="lead">Les sauvages sont maintenant de simples monstres niveau 60 (zone niveaux 62-70, ~900 PV). La capture ne demande plus de connaissance particulière.</p>
+  <div class="grid">
+    <div class="card"><h4>📍 Où capturer</h4><ul>
+      <li><b>Dragodindes</b> : Territoires des Dragodindes sauvages (montagne des Koalaks)</li>
+      <li><b>Volkornes</b> : Haras de Brâkmar (sud de Brâkmar)</li>
+      <li><b>Muldos</b> : Bassin des Muldos, en bateau en [15,19]</li>
+    </ul></div>
+    <div class="card"><h4>🎯 Le sort de capture</h4><ul>
+      <li>Accordé automatiquement en équipant un filet dans les consommables de combat</li>
+      <li>Portée 7 PO sans ligne de vue, 1 PA, 1 fois par combat</li>
+      <li>La cible reçoit l'état <i>Capturé</i> ; la capture se valide en tuant tous les adversaires</li>
+      <li>En multi : une monture ne peut être capturée qu'une fois, pas volable</li>
+      <li><b>+30 XP métier</b> par combat avec capture</li>
+    </ul></div>
+  </div>
+  <h3>Les filets</h3>
+  <table><thead><tr><th>Filet</th><th>Niveau perso</th><th>Effet</th></tr></thead><tbody id="tblFilets"></tbody></table>
+  <h3>Les « sauvages » et la reproduction : comment ça marche maintenant</h3>
+  <ol class="steps">
+    <li><b>Capturée = génération 1, directement domestique.</b> Plus de statut « sauvage » à garder en enclos : pas de généalogie, tu l'élèves tout de suite. Les 3 couleurs de base : <b>Amande, Rousse, Dorée</b>.</li>
+    <li><b>Deux gen 1 de couleurs différentes → génération cible 2</b> (ex. Amande × Rousse). La cible n'est pas garantie : 30 % de base + 0,15 % par niveau de parent (cf. onglet Reproduction).</li>
+    <li><b>Le sexe est aléatoire.</b> Le filet multiplicateur duplique la couleur mais pas le sexe garanti → capture en masse pour avoir des couples M/F de couleurs différentes.</li>
+    <li><b>Un bébé par couple</b>, parents stériles aussitôt. Donc chaque couple utilisé est « consommé » : clone, extrais ou vends ensuite.</li>
+  </ol>
+  <div class="warn"><b>Piège de lecture :</b> beaucoup de vieux guides (et un guide récent qui mélange tout) parlent de mâle sauvage qui s'enfuit après l'accouplement, de sauvage/domestique interdit, ou de « jusqu'à 4 bébés ». C'est l'ancien système (pré-2.47 / 3.5). Il ne s'applique plus.</div>
+</section>
+
+<!-- ================= REPRO ================= -->
+<section id="tab-repro">
+  <h2>Reproduction pas à pas</h2>
+  <ol class="steps">
+    <li><b>Enclos publics</b> : village des Éleveurs en [-16,1], 6 enclos de 10 places liés au compte. Ils se débloquent avec le niveau de métier (voir tableau). Un autre perso du même compte n'ajoute pas de places.</li>
+    <li><b>Jauges & carburants</b> : 6 jauges, 2 actives maximum à la fois, appliquées à <b>toutes</b> les montures de l'enclos. La conso ne dépend pas du nombre de montures → remplis chaque enclos à 10.</li>
+    <li><b>Sérénité</b> (-5 000 à 5 000) : elle décide quelle jauge progresse. Garde-la proche de 0 (cf. simulateur dans Outils).</li>
+    <li><b>Fécondité</b> : Endurance, Maturité et Amour à <b>20 000</b> chacune. Dorée : cinq fois plus lent, maturité jusqu'à 10 000 au lieu de 1 000.</li>
+    <li><b>Accouplement</b> : deux montures fécondes, sexes opposés, même type, dans l'étable. Le bébé naît tout de suite, niveau 1, jauges à zéro, sexe aléatoire.</li>
+    <li><b>Après</b> : les parents sont stériles. Tu les clones (2 → 1 fertile), les extrais (détruits, ressources) ou les vends.</li>
+  </ol>
+  <h3>Génération cible : la formule</h3>
+  <div class="card">
+    <p><b>Chance = 30 % + 0,15 % × (niveau parent A + niveau parent B) + bonus Optimakina</b></p>
+    <ul><li>Deux parents niveau 100 : 60 %. Deux parents niveau 200 : 90 %.</li>
+      <li>Optimakina (+10 %) avec deux parents niveau 200 → <b>100 %</b>.</li>
+      <li>Une couleur répétée dans l'arbre généalogique (limité aux grands-parents) augmente ses chances d'apparaître.</li></ul>
+  </div>
+  <h3>Enclos : déblocage par niveau de métier</h3>
+  <table><thead><tr><th>Niveau métier</th><th>Palier</th></tr></thead><tbody id="tblEnclos"></tbody></table>
+  <p style="color:var(--mut);font-size:13px">Conseil des guides : viser le niveau 120 pour avoir 4 enclos (40 places).</p>
+  <h3>Les 6 jauges</h3>
+  <table><thead><tr><th>Jauge</th><th>Effet</th></tr></thead><tbody id="tblJauges"></tbody></table>
+  <h3>Tiers de jauge et vitesse d'XP</h3>
+  <table><thead><tr><th>Tier</th><th>Plage</th><th>Durée de vidage</th><th>XP / seconde (Mangeoire)</th></tr></thead><tbody id="tblTiers"></tbody></table>
+  <p style="color:var(--mut);font-size:13px">Jauge pleine (100 000) ≈ 17 h 48. Plus c'est plein, plus ça donne vite… et plus ça se vide vite.</p>
+  <h3>Carburants</h3>
+  <table><thead><tr><th>Carburant</th><th>Tier max</th><th>Niveau métier</th><th>Prix Gigantesque (poussière)</th></tr></thead><tbody id="tblCarb"></tbody></table>
+  <p style="color:var(--mut);font-size:13px">5 tailles, de Minuscule (1 000 de durabilité) à Gigantesque (5 000). Adèle Vage en [-18,1] vend les Gigantesques contre de la poussière ; dispo aussi à l'HDV.</p>
+  <h3>Makinas & capacités</h3>
+  <table><thead><tr><th>Makina</th><th>Effet</th></tr></thead><tbody id="tblMakinas"></tbody></table>
+  <ul>
+    <li>Une seule Makina par accouplement. Les capacités ne s'héritent pas : elles viennent uniquement des Makinas.</li>
+    <li><b>Reproducteur</b> : un bébé supplémentaire (actif même si seul le mâle l'a, non cumulable).</li>
+    <li><b>Sage</b> : double l'XP de la monture.</li>
+    <li>Utilise une Makina de génération au moins égale à la cible.</li>
+  </ul>
+  <h3>Clonage, extraction, Génétons</h3>
+  <div class="grid">
+    <div class="card"><h4>♻ Clonage</h4><p>Fusionne deux montures stériles de même génération et type : une seule revient, fertile, même sexe et généalogie. Jauges réinitialisées, capacité perdue. Pas sur les séniles.</p></div>
+    <div class="card"><h4>⚗ Extraction</h4><p>Détruit la monture. 1 ressource par génération (Neurone pour la dragodinde, Ambre pour le muldo, Corne pour le volkorne). Gen 1 non extractible. À réserver aux stériles sans autre usage.</p></div>
+    <div class="card"><h4>🔷 Génétons</h4><p>Gagnés quand le bébé dépasse la génération de toutes les montures des arbres parents. Les Génétons des deux parents s'additionnent (liés au compte). Eugène Éton les échange contre parchemins de caractéristiques, Tourmalines et Alitons.</p><table id="tblGenetons"></table></div>
+  </div>
+</section>
+
+<!-- ================= CROISEMENTS ================= -->
+<section id="tab-croise">
+  <h2>Générations & couleurs</h2>
+  <p class="lead">66 dragodindes élevables + 2 spéciales non reproductibles. Chaque couleur n'a qu'un seul croisement possible : vérifie la recette exacte dans l'interface <i>Génétique</i> en jeu (bulle au-dessus de la monture).</p>
+  <div style="max-width:380px;margin-bottom:10px"><label>Chercher une couleur</label><input id="searchColor" placeholder="ex. Émeraude, Prune, Ivoire…"></div>
+  <div id="genList"></div>
+  <div class="warn">Le nombre de neurones à l'extraction est égal à la génération. Les recettes parentales exactes ne sont pas reproduites ici : les guides ne donnent qu'une liste par génération, et je n'invente pas de recette. Exemples confirmés : Émeraude = Ivoire/Turquoise × Ivoire/Pourpre ; Pourpre (gen 5) × Émeraude (gen 9) → génération cible 10.</div>
+</section>
+
+<!-- ================= RENTA ================= -->
+<section id="tab-renta">
+  <h2>Rentabilité par serveur</h2>
+  <div class="warn"><b>Aucun prix par défaut, volontairement.</b> Aucune source publique ne donne les prix HDV par serveur (DofusDB ne donne que le prix PNJ, il n'y a pas d'API HDV officielle). Tu saisis tes prix toi-même : ils sont datés et enregistrés dans ton navigateur. Pense à <b>exporter</b> de temps en temps.</div>
+  <div id="demoBanner" class="demo" hidden>MODE DÉMO — prix fictifs, rien n'est enregistré dans tes vraies données. <button class="btn sm" onclick="document.getElementById('btnDemo').click()">Quitter</button></div>
+
+  <h3 id="priceTable">1) Tes prix HDV — <span id="srvName" style="color:var(--txt)"></span></h3>
+  <div class="card">
+    <p class="mut" id="srvNote"></p>
+    <div id="emptyPrices" class="empty" hidden>
+      <b>Aucun prix saisi sur ce serveur.</b> Remplis le tableau ci-dessous, colle une liste, ou regarde la démo pour comprendre les résultats.
+    </div>
+    <div class="between"><span id="priceCount" class="count"></span>
+      <span class="btns"><button class="btn" id="btnDemo">Voir une démo (prix fictifs)</button>
+      <button class="btn" id="btnCopyAll">Copier vers tous les serveurs</button>
+      <button class="btn" id="btnReset">Vider ce serveur</button></span></div>
+    <table class="prices"><thead><tr><th>Élément</th><th>Prix (kamas)</th><th>Relevé</th><th><span class="sr">Effacer</span></th></tr></thead><tbody id="priceBody"></tbody></table>
+    <details><summary>Coller une liste de prix / export / import</summary>
+      <p class="mut">Une ligne par prix, ex. <code>5 300k</code>, <code>gen 9 2,4M</code>, <code>neurone 25000</code>, <code>optimakina 150k</code>, <code>geneton 3000</code>.</p>
+      <textarea id="pasteBox" rows="5" placeholder="5 300k&#10;6 520k&#10;neurone 25k"></textarea>
+      <div class="btns"><button class="btn" id="btnPaste">Importer ce texte</button>
+        <button class="btn" id="btnExport">Exporter tout (JSON)</button>
+        <label class="btn" for="fileImport" style="margin:0;cursor:pointer">Importer un JSON</label><input type="file" id="fileImport" accept=".json,application/json" hidden></div>
+      <div id="pasteRes" class="mut"></div>
+    </details>
+  </div>
+
+  <h3>2) Simulateur d'un couple <span class="tag">serveur actif</span></h3>
+  <div class="card">
+    <div class="form" id="calcForm"></div>
+    <details><summary>Hypothèses du calcul</summary><div class="form" id="hypForm"></div>
+      <p class="mut">Hypothèses fixes : un bébé raté vaut le prix de la génération inférieure (ou ton prix forcé) ; le second bébé du Reproducteur a les mêmes chances ; le carburant est à saisir toi-même ; aucune taxe HDV n'est déduite.</p></details>
+    <div id="calcRes"></div>
+    <div id="sens"></div>
+  </div>
+
+  <h3>3) Comparatif serveurs × génération cible</h3>
+  <p class="lead">Profit <b>espéré</b> par couple avec TES prix de chaque serveur : parent A gén. (cible − 1), achetés à l'HDV, réglages du simulateur repris (niveaux, Optimakina, carburant, parents, Génétons). Cases hachurées = prix manquants (pas de calcul). Les couleurs sont relatives à ce tableau. Case encadrée = meilleure du serveur.</p>
+  <div style="max-width:320px;margin-bottom:10px"><label for="matB">Parent B</label>
+    <select id="matB"><option value="same">Même génération que A</option><option value="gen1">Génération 1 (capturée / pas chère)</option></select></div>
+  <div class="scroll"><table class="heat" id="matrix"></table></div>
+  <h3>Graphique — serveur actif</h3>
+  <p class="mut">Barre = profit espéré ; trait = écart entre échec et succès.</p>
+  <div id="chart" class="chart"></div>
+  <h3>Notes par serveur</h3>
+  <table><thead><tr><th>Serveur</th><th>Type</th><th>Ce que disent les guides</th></tr></thead><tbody id="tblSrv"></tbody></table>
+  <p class="mut">Le mode Héroïque n'existe plus sur DOFUS 3. Sept serveurs : Draconiros (mono), Tal Kasha, Orukam, Tylezia, Hell Mina, Imagiro (classiques), Ombre (épique).</p>
+</section>
+
+<!-- ================= FOCUS ================= -->
+<section id="tab-focus">
+  <h2>Quoi focus</h2>
+  <p class="lead">Mon analyse à partir des mécaniques (pas une vérité de marché). Les chiffres de prix, c'est à toi de les mettre dans la Rentabilité pour trancher.</p>
+  <ol class="steps">
+    <li><b>Métier niveau 120 d'abord</b> (4 enclos = 40 places). Source d'XP : 30 XP par combat de capture, crafts, accouplements. Capturer = XP métier + stock de gen 1 en même temps.</li>
+    <li><b>Capture de masse en gen 1</b> (Amande / Rousse / Dorée) avec les filets multiplicateurs (dès niveau 100). Un couple = un seul bébé, donc il te faut du volume et des deux sexes.</li>
+    <li><b>Enclos toujours pleins (10/10)</b> : la conso de carburant est la même que tu aies 1 ou 10 montures. Une seule jauge secondaire avec la Mangeoire.</li>
+    <li><b>Sérénité proche de 0</b>, entre -2 000 et 2 000. Hors de là tu perds une jauge utile.</li>
+    <li><b>Parents niveau 100+ minimum.</b> Chaque niveau vaut 0,15 % ; niveau 200 ×2 = 90 %. Mais monter à 200 coûte 60 h (tier 4 permanent) à 100-150 h en vrai : arbitre contre une Optimakina.</li>
+    <li><b>Monte les générations tant que le prix de la cible dépasse le coût des parents + carburant + Makina.</b> Calcule-le, ne devine pas.</li>
+    <li><b>Parents stériles : clone, extrais ou vends</b> selon ton objectif. Succès → cloner. Cash pur → extraire seulement si neurones × prix > prix de revente (un parent gen 10 = 10 neurones).</li>
+    <li><b>Génétons</b> : un parent gen 9 × un gen 1 qui donne un gen 10 = 251 Génétons. Valorise-les au prix des parchemins que tu comptes acheter.</li>
+    <li><b>Cale tes accouplements sur l'Almanax</b> (ex. Takeza : +20 % sur la génération cible ; capacités gratuites à la naissance certains mois).</li>
+  </ol>
+  <div class="warn"><b>Les erreurs classiques :</b> lancer des accouplements sans réserve fertile (tu casses des branches de l'arbre), extraire des montures pré-3.5 (une seule ressource), vendre un parent qu'il aurait fallu cloner pour un succès, oublier que les Dorées sont 5× plus lentes.</div>
+</section>
+
+<!-- ================= OUTILS ================= -->
+<section id="tab-outils">
+  <h2>Outils</h2>
+  <div class="grid">
+    <div class="card"><h4>🧘 Conseiller de sérénité</h4>
+      <label>Sérénité actuelle (-5 000 à 5 000)</label><input type="number" id="serIn" min="-5000" max="5000" value="0">
+      <div id="serOut" style="margin-top:10px"></div></div>
+    <div class="card"><h4>⏱ Temps de montée en niveau</h4>
+      <div class="form">
+        <div><label>Trajet</label><select id="xpRoute"><option value="172668">Niveau 1 → 100 (172 668 XP)</option><option value="694914">Niveau 100 → 200 (694 914 XP)</option><option value="867582">Niveau 1 → 200 (867 582 XP)</option></select></div>
+        <div><label>Tier de la Mangeoire</label><select id="xpTier"><option value="1">Tier 1 (1 XP/s)</option><option value="2">Tier 2 (2 XP/s)</option><option value="3">Tier 3 (3 XP/s)</option><option value="4" selected>Tier 4 (4 XP/s)</option></select></div>
+        <div class="check"><input type="checkbox" id="xpSage"><label for="xpSage">Capacité Sage (×2)</label></div>
+      </div>
+      <div id="xpOut" style="margin-top:10px"></div></div>
+  </div>
+</section>
+
+<!-- ================= SOURCES ================= -->
+<section id="tab-src">
+  <h2>Sources & points incertains</h2>
+  <h3>Les guides utilisés</h3>
+  <ul id="srcList"></ul>
+  <h3>Où les sources se contredisent</h3>
+  <table><thead><tr><th>Sujet</th><th>Version A</th><th>Version B</th></tr></thead><tbody>
+    <tr><td>Bonus de l'Optimakina</td><td>+10 % (Next Stage, Pros)</td><td>+20 % (Noobs). Réglable dans le simulateur.</td></tr>
+    <tr><td>XP métier par accouplement</td><td>10 XP × génération × monture</td><td>30 × génération × monture</td></tr>
+    <tr><td>Capacité de la jauge</td><td>100 000 (2 sources)</td><td>200 000 (1 source)</td></tr>
+    <tr><td>Animakina</td><td>Capacité aléatoire (2 sources)</td><td>Choix du sexe du bébé (1 source)</td></tr>
+    <tr><td>Probabilités de capacité</td><td>27 / 27 / 27 / 14 / 5 %</td><td>8 / 8 / 6 / 3 %</td></tr>
+    <tr><td>Bébés par accouplement</td><td>1 (2 avec Reproducteur)</td><td>« jusqu'à 4 » (guide qui mélange l'ancien système)</td></tr>
+  </tbody></table>
+  <div class="warn">J'ai retenu la version majoritaire ou la plus cohérente, mais compare toujours avec le jeu. Ce que le simulateur suppose : un bébé raté vaut le prix que tu indiques (par défaut la génération juste en dessous) ; la capacité Reproducteur donne un second bébé avec les mêmes chances.</div>
+</section>
+
+</main>
+<footer>Outil interne · données Dofus 3.5 recueillies en novembre 2026 · aucune donnée envoyée : tout reste dans ton navigateur · <a href="tests.html">tests du calcul</a></footer>
+<script src="data.js"></script>
+<script src="calc.js"></script>
+<script src="store.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
