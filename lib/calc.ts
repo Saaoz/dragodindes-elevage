@@ -16,6 +16,7 @@ export interface CalcSettings {
   lvlB: number;
   opti: boolean;
   optiBonus: number;
+  takeza: boolean;
   repro: boolean;
   origin: "hdv" | "capture";
   parentsMode: "extract" | "sell" | "none";
@@ -25,6 +26,27 @@ export interface CalcSettings {
   priceFail: number;
   countGenetons: boolean;
 }
+
+/* Valeurs par défaut du simulateur, reprises de defaultCalc (legacy/store.js).
+   Écarts assumés avec la v2 : optiBonus 20 (Optimakina +20 % en 3.7) et takeza false. */
+export const DEFAULT_CALC: CalcSettings = {
+  target: 5,
+  genA: 4,
+  genB: 4,
+  lvlA: 100,
+  lvlB: 100,
+  opti: true,
+  optiBonus: 20,
+  takeza: false,
+  repro: false,
+  origin: "hdv",
+  parentsMode: "extract",
+  sterileSell: 0,
+  fuel: 0,
+  priceTarget: 0,
+  priceFail: 0,
+  countGenetons: false,
+};
 
 /* Prix numériques : gen[g] = prix d'une monture de génération g (index 0 inutilisé) */
 export interface Prices {
@@ -90,8 +112,18 @@ export function fmtShort(n: number): string {
 }
 
 /* ---------- chance de génération cible ---------- */
-export function chanceCible(lvlA: number, lvlB: number, opti: boolean, optiBonus: number): number {
-  const p = 0.3 + 0.0015 * (clamp(lvlA, 1, 200) + clamp(lvlB, 1, 200)) + (opti ? optiBonus / 100 : 0);
+export function chanceCible(
+  lvlA: number,
+  lvlB: number,
+  opti: boolean,
+  optiBonus: number,
+  takeza = false,
+): number {
+  const p =
+    0.3 +
+    0.0015 * (clamp(lvlA, 1, 200) + clamp(lvlB, 1, 200)) +
+    (opti ? optiBonus / 100 : 0) +
+    (takeza ? 0.2 : 0);
   return Math.min(1, Math.max(0, p));
 }
 
@@ -109,7 +141,7 @@ export function compute(c: CalcSettings, P: Prices): ComputeResult {
     genA = clamp(c.genA, 1, 10),
     genB = clamp(c.genB, 1, 10);
   const babies = c.repro ? 2 : 1;
-  const p = chanceCible(c.lvlA, c.lvlB, c.opti, c.optiBonus);
+  const p = chanceCible(c.lvlA, c.lvlB, c.opti, c.optiBonus, c.takeza);
 
   const failGen = Math.max(1, target - 1);
   const priceT = c.priceTarget > 0 ? c.priceTarget : need("Monture gén. " + target + " (bébé cible)", P.gen[target]);
