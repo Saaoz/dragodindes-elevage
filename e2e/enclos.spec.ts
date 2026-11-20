@@ -52,3 +52,34 @@ test("la page d'accueil mène aux enclos", async ({ page }) => {
   await page.getByRole("link", { name: /Mes enclos/ }).click();
   await expect(page.getByRole("heading", { name: "Mes enclos", level: 1 })).toBeVisible();
 });
+
+test("sans variables d'environnement : push désactivé avec explication, agenda toujours disponible", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisir(page);
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  const bouton = carte.getByRole("button", { name: "Recevoir une notification sur ce téléphone" });
+  await expect(bouton).toBeVisible();
+  await expect(bouton).toBeDisabled();
+  await expect(carte.getByText(/pas encore configurées sur ce serveur/)).toBeVisible();
+  await expect(carte.getByText(/Utilise plutôt « Ajouter à mon agenda »/)).toBeVisible();
+
+  const download = page.waitForEvent("download");
+  await carte.getByRole("button", { name: "Ajouter à mon agenda" }).click();
+  expect((await download).suggestedFilename()).toMatch(/\.ics$/);
+});
+
+test("API des rappels sans configuration : réponses propres, aucun crash", async ({ request }) => {
+  const etat = await request.get("/api/reminders");
+  expect(etat.status()).toBe(200);
+  expect(await etat.json()).toMatchObject({ disponible: false });
+  expect((await request.post("/api/reminders", { data: {} })).status()).toBe(503);
+  expect((await request.post("/api/reminders/fire", { data: {} })).status()).toBe(503);
+  expect((await request.delete("/api/reminders/msg_1", { data: { endpoint: "x" } })).status()).toBe(503);
+});
+
+test("un lien de notification ouvre l'enclos concerné", async ({ page }) => {
+  await page.goto("/enclos#enclos-3");
+  await expect(page.locator("#enclos-3")).toBeFocused();
+  await expect(page.locator("#enclos-3")).toHaveAccessibleName("Enclos 3");
+});

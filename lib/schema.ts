@@ -78,6 +78,13 @@ export const monture = z.object({
   serenite: z.number().int().min(-5000).max(5000).default(0),
 });
 
+export const rappelPushSchema = z.object({
+  messageId: z.string().min(1).max(128),
+  /* heure d'envoi prévue (ms) */
+  at: z.number().finite().nonnegative(),
+});
+export type RappelPush = z.infer<typeof rappelPushSchema>;
+
 export const enclosSchema = z.object({
   nom: z.string().max(60).default(""),
   montures: z.array(monture).max(50).default([]),
@@ -88,6 +95,9 @@ export const enclosSchema = z.object({
   niveauAutre: z.number().int().min(0).max(CAPACITE_JAUGE).default(0),
   /* horodatage de la saisie des niveaux (ms), null si jamais saisi */
   saisieLe: z.number().finite().nonnegative().nullable().default(null),
+  /* Rappel push planifié sur CET appareil (#16) : identifiant du message QStash pour l'annuler.
+     Propre à l'appareil : jamais exporté, remis à null à l'import. */
+  rappel: rappelPushSchema.nullable().default(null),
 });
 export type Enclos = z.infer<typeof enclosSchema>;
 

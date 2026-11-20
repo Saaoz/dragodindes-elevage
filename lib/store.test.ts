@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fixture from "./__fixtures__/export-v2.json";
 import { defaultAppData, type PriceKey } from "./schema";
 import {
-  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, demoData, migrateOptimakina, migrateV1, parseExport, parsePaste, priceValues, resetDemo,
-  useDemoStore, useStore,
+  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateOptimakina, migrateRappels, migrateV1, parseExport,
+  parsePaste, priceValues, resetDemo, useDemoStore, useStore,
 } from "./store";
 
 /* faux localStorage en mémoire */
@@ -144,7 +144,7 @@ describe("persistance", () => {
   it("écrit sous la clé v3 avec le numéro de version, et relit", async () => {
     st().setPrice("Imagiro", "g5", 300000);
     const stored = JSON.parse(mem.getItem(STORAGE_KEY)!);
-    expect(stored.version).toBe(4);
+    expect(stored.version).toBe(STORAGE_VERSION);
     expect(stored.state.prices.Imagiro.g5.v).toBe(300000);
     expect("setPrice" in stored.state).toBe(false);
     const saved = mem.getItem(STORAGE_KEY)!;
@@ -511,5 +511,73 @@ describe("mode démo isolé (cas de #5)", () => {
     expect(P.gen[10]).toBe(4000000);
     expect(P.neurone).toBe(25000);
     expect(P.gen[0]).toBe(0);
+  });
+});
+
+describe("rappel push par enclos (#16) : version 5", () => {
+  const enclosSaisi = (saisieLe: number, rappel: unknown = undefined) => ({
+    nom: "Nord", jaugeSerenite: "+", niveauSerenite: 1000, saisieLe, ...(rappel === undefined ? {} : { rappel }),
+  });
+
+  it("la version de stockage est 5", () => {
+    expect(STORAGE_VERSION).toBe(5);
+  });
+
+  it("migrateRappels : ajoute rappel null, garde un rappel valide, répare un rappel illisible, idempotent", () => {
+    const src = { enclos: [enclosSaisi(1), enclosSaisi(2, { messageId: "msg_1", at: 5 }), enclosSaisi(3, { messageId: 42 })] };
+    const m = migrateRappels(src) as { enclos: Record<string, unknown>[] };
+    expect(m.enclos.map((e) => e.rappel)).toEqual([null, { messageId: "msg_1", at: 5 }, null]);
+    expect(migrateRappels(m)).toEqual(m);
+    expect("rappel" in src.enclos[0]).toBe(false); // argument non modifié
+    expect(migrateRappels({ autre: 1 })).toEqual({ autre: 1 });
+  });
+
+  it("hydratation d'un localStorage v4 : enclos conservés, rappel à null", async () => {
+    const enclos = Array.from({ length: 6 }, (_, i) => enclosSaisi(1000 + i));
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 4, state: { ...fixture.data, enclos } }));
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(false);
+    expect(st().enclos.map((e) => e.saisieLe)).toEqual([1000, 1001, 1002, 1003, 1004, 1005]);
+    expect(st().enclos.every((e) => e.rappel === null)).toBe(true);
+  });
+
+  it("un rappel corrompu sur le disque ne fait jamais perdre les enclos", async () => {
+    const enclos = Array.from({ length: 6 }, (_, i) => enclosSaisi(1000 + i, i === 2 ? { messageId: "" } : null));
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 5, state: { ...fixture.data, enclos } }));
+    await useStore.persist.rehydrate();
+    expect(st().enclos[2].saisieLe).toBe(1002);
+    expect(st().enclos[2].rappel).toBeNull();
+  });
+
+  it("setRappel : enregistre et persiste, refuse si l'enclos a été ressaisi", () => {
+    useStore.setState({ enclos: st().enclos.map((e, i) => (i === 1 ? { ...e, saisieLe: 77 } : e)) });
+    expect(st().setRappel(1, 77, { messageId: "msg_9", at: 123 })).toBe(true);
+    expect(st().enclos[1].rappel).toEqual({ messageId: "msg_9", at: 123 });
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).state.enclos[1].rappel.messageId).toBe("msg_9");
+    expect(st().setRappel(1, 78, null)).toBe(false); // ressaisi entre-temps
+    expect(st().setRappel(1, 77, { messageId: "", at: 1 })).toBe(false); // invalide
+    expect(st().setRappel(9, null, null)).toBe(false);
+    expect(st().setRappel(1, 77, null)).toBe(true);
+    expect(st().enclos[1].rappel).toBeNull();
+  });
+
+  it("setRappel : rien n'est écrit en version future", async () => {
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 99, state: {} }));
+    await useStore.persist.rehydrate();
+    const before = [...mem.m];
+    expect(st().setRappel(0, null, { messageId: "msg_1", at: 1 })).toBe(false);
+    expect([...mem.m]).toStrictEqual(before);
+  });
+
+  it("le rappel est propre à l'appareil : ni exporté ni importé", () => {
+    useStore.setState({ enclos: st().enclos.map((e, i) => (i === 0 ? { ...e, saisieLe: 5, rappel: { messageId: "msg_x", at: 9 } } : e)) });
+    const out = st().exportJSON();
+    expect(out).not.toContain("msg_x");
+    expect(JSON.parse(out).data.enclos[0]).not.toHaveProperty("rappel");
+    const avecRappel = JSON.parse(out);
+    avecRappel.data.enclos[0].rappel = { messageId: "msg_y", at: 9 };
+    expect(st().importJSON(JSON.stringify(avecRappel)).ok).toBe(true);
+    expect(st().enclos[0].saisieLe).toBe(5);
+    expect(st().enclos[0].rappel).toBeNull();
   });
 });

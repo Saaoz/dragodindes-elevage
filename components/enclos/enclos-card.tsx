@@ -18,6 +18,16 @@ import { construireIcs, lienGoogleAgenda, nomFichierIcs, type EvenementAgenda } 
 import { CAPACITE_JAUGE } from "@/lib/data";
 import type { Enclos } from "@/lib/schema";
 import { cn } from "@/lib/utils";
+import { MESSAGES_INDISPO } from "@/lib/push/client";
+import type { EtatPush } from "@/components/enclos/use-push";
+
+export interface PushCarte {
+  etat: EtatPush;
+  enCours: boolean;
+  note: string | null;
+  onActiver: () => void;
+  onAnnuler: () => void;
+}
 
 type Permission = NotificationPermission | "indisponible";
 
@@ -60,6 +70,7 @@ export function EnclosCard({
   onObjectif,
   onSave,
   onClear,
+  push,
 }: {
   enclos: Enclos;
   vue: VueEnclos;
@@ -69,6 +80,7 @@ export function EnclosCard({
   onObjectif: (o: Objectif) => void;
   onSave: (e: Enclos) => void;
   onClear: () => void;
+  push: PushCarte;
 }) {
   const nom = enclos.nom || `Enclos ${vue.index + 1}`;
   const [edition, setEdition] = useState(false);
@@ -119,9 +131,11 @@ export function EnclosCard({
 
   return (
     <section
+      id={`enclos-${vue.index + 1}`}
+      tabIndex={-1}
       aria-label={nom}
       className={cn(
-        "flex flex-col gap-3 rounded-xl border bg-card p-4 text-card-foreground",
+        "flex scroll-mt-4 flex-col gap-3 rounded-xl border bg-card p-4 text-card-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring",
         urgent && "border-red-500/60",
       )}
     >
@@ -249,10 +263,11 @@ export function EnclosCard({
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground">
-                « Me prévenir ici » ne marche que si l&apos;onglet reste ouvert — pour le téléphone, utilise l&apos;agenda.
+                « Me prévenir ici » ne marche que si l&apos;onglet reste ouvert.
                 {permission === "denied" && " Les notifications sont bloquées par ton navigateur."}
                 {permission === "indisponible" && " Les notifications ne sont pas disponibles sur ce navigateur."}
               </p>
+              <BlocPush push={push} rappel={enclos.rappel} maintenantMs={maintenantMs} />
             </div>
           )}
 
@@ -264,5 +279,61 @@ export function EnclosCard({
         </>
       )}
     </section>
+  );
+}
+
+/* Notification push à l'heure de retour, même onglet fermé (#16), avec repli explicite sur l'agenda. */
+function BlocPush({
+  push,
+  rappel,
+  maintenantMs,
+}: {
+  push: PushCarte;
+  rappel: Enclos["rappel"];
+  maintenantMs: number;
+}) {
+  const { etat, enCours, note } = push;
+  const prevu = rappel !== null && rappel.at > maintenantMs;
+  return (
+    <div className="flex flex-col gap-1.5 rounded-lg border border-dashed p-2.5" data-testid="bloc-push">
+      {prevu ? (
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-sm font-medium" role="status">
+            Notification prévue à {formatHeure(rappel.at, maintenantMs)} sur ce téléphone
+          </p>
+          <Button size="xs" variant="ghost" onClick={push.onAnnuler}>
+            Annuler la notification
+          </Button>
+        </div>
+      ) : (
+        <Button
+          size="sm"
+          variant="secondary"
+          className="self-start"
+          onClick={push.onActiver}
+          disabled={etat.statut !== "pret" || enCours}
+        >
+          {enCours ? "Planification…" : "Recevoir une notification sur ce téléphone"}
+        </Button>
+      )}
+      {etat.statut === "indisponible" && (
+        <p className="text-xs text-amber-700 dark:text-amber-300">
+          {MESSAGES_INDISPO[etat.raison]} Utilise plutôt « Ajouter à mon agenda » : l&apos;alarme de ton agenda sonnera
+          à l&apos;heure.
+        </p>
+      )}
+      {etat.statut === "pret" && !prevu && (
+        <p className="text-xs text-muted-foreground">
+          {etat.abonne
+            ? "Notifications activées sur cet appareil : chaque saisie planifie automatiquement son rappel."
+            : "Tu seras prévenu à l’heure de retour, même onglet fermé ou téléphone en poche."}
+        </p>
+      )}
+      {note && (
+        <p className="text-xs text-amber-700 dark:text-amber-300" role="status">
+          {note}
+        </p>
+      )}
+    </div>
   );
 }
