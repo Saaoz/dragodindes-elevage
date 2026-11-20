@@ -200,10 +200,10 @@ describe("serenityPlan : Sérénité −, zone, regroupement", () => {
     const plan = serenityPlan({ serenites: [5000, 1000], sens: "+", niveauJauge: 50000 });
     expect(plan.aRemplir).toMatchObject({ statut: "horsZone", atteignable: false, points: 0, sensConseille: null });
     expect(plan.aRemplir.message).not.toMatch(/déjà atteint/);
-    expect(plan.aRemplir.message).toMatch(/déjà à \+5 000.*gaspillé/);
+    expect(plan.aRemplir.message).toMatch(/déjà à \+5\s000.*gaspillé/);
     expect(plan.aRemplir.message).not.toMatch(/reviens la couper/);
     const moins = serenityPlan({ serenites: [-5000], sens: "-", niveauJauge: 0 });
-    expect(moins.aRemplir.message).toMatch(/déjà à −5 000.*Sérénité −.*Sérénité \+/);
+    expect(moins.aRemplir.message).toMatch(/déjà à −5\s000.*Sérénité −.*Sérénité \+/);
   });
 
   it("aucune jauge et aucun objectif", () => {
@@ -238,7 +238,7 @@ describe("serenityPlan : Sérénité −, zone, regroupement", () => {
   it("jauge déjà à moitié : points à ajouter seulement", () => {
     const plan = serenityPlan({ serenites: [-4000], sens: "+", niveauJauge: 1500, cible: 0 });
     expect(plan.aRemplir).toMatchObject({ points: 4000, aAjouter: 2500, excedent: 0 });
-    expect(plan.aRemplir.message).toMatch(/ajoute 2 500/);
+    expect(plan.aRemplir.message).toMatch(/ajoute 2\s500/);
   });
 
   it("événements triés par temps", () => {

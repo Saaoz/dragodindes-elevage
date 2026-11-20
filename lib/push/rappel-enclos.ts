@@ -1,6 +1,6 @@
 /* Contenu et heure du rappel push d'un enclos (#16). Fonction pure : « maintenant » est un paramètre. */
 
-import { formatHeure, MARGE_RETOUR_S, vueEnclos, type Objectif } from "../enclos";
+import { formatHeure, MARGE_RETOUR_S, raisonRetour, vueEnclos, type Objectif } from "../enclos";
 import type { Enclos } from "../schema";
 import { MAX_DELAI_MS } from "./schema";
 
@@ -28,13 +28,12 @@ export function contenuRappel(
   if (at - maintenantMs > MAX_DELAI_MS) return { ok: false, raison: "Retour dans plus de 7 jours : utilise l’agenda." };
   const nom = enclos.nom || `Enclos ${index + 1}`;
   const avant = formatHeure(vue.retour.quandMs, at);
+  const raison = raisonRetour(vue, maintenantMs) ?? "";
   return {
     ok: true,
     at,
     titre: `${nom} : reviens à l’enclos`.slice(0, 100),
-    corps: vue.alerte
-      ? `Reviens avant ${avant} : une monture va atteindre la limite de sérénité.`
-      : `Reviens avant ${avant} pour ne pas gaspiller la jauge de sérénité.`,
+    corps: `Reviens avant ${avant} : ${raison}.`,
     url: `/enclos#enclos-${index + 1}`,
     enclos: index,
   };
