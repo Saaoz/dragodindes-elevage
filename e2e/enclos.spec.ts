@@ -230,3 +230,24 @@ test("deux onglets : un réglage changé dans A survit à une saisie faite dans 
   await expect(marge(a, 30)).toHaveAttribute("aria-pressed", "true");
   await expect(a.getByRole("region", { name: "Enclos 5" }).getByText(/Reviens avant/)).toBeVisible();
 });
+
+test("claviers mobiles : sérénité négative tapée au clavier texte (« -3000 »), niveau « 200k » et kamas", async ({ page }) => {
+  await page.goto("/enclos");
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  await carte.getByRole("button", { name: "Saisir cet enclos" }).click();
+
+  const serenite = page.getByLabel("Sérénité exacte de la monture 1");
+  await expect(serenite).toHaveAttribute("inputmode", "text");
+
+  await serenite.fill("-3000");
+  await page.getByRole("button", { name: "Sérénité +" }).click();
+  await expect(page.getByPlaceholder("ex. 200000 ou 85k")).toHaveAttribute("inputmode", "text");
+  await page.getByPlaceholder("ex. 200000 ou 85k").fill("200k");
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+
+  await expect(carte.getByText(/−3[\s  ]000/).first()).toBeVisible();
+
+  await page.goto("/rentabilite");
+  await page.getByRole("button", { name: "Génération 2" }).click();
+  await expect(page.getByLabel("Prix : Monture gén. 2", { exact: true })).toHaveAttribute("inputmode", "text");
+});

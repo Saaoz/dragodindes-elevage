@@ -19,6 +19,15 @@ import {
 import { AUTRES_JAUGES, type Enclos } from "@/lib/schema";
 import { cn } from "@/lib/utils";
 
+/* Clavier texte (et non pavé numérique) : il faut pouvoir taper « − », « - », « k ». Le parsing accepte ces formes. */
+const SAISIE_TEXTE = {
+  inputMode: "text",
+  autoComplete: "off",
+  autoCorrect: "off",
+  autoCapitalize: "off",
+  spellCheck: false,
+} as const;
+
 const ANNEAU_VISAGE: Record<string, string> = {
   rouge: "ring-red-600 dark:ring-red-400",
   bleu: "ring-blue-600 dark:ring-blue-400",
@@ -86,7 +95,7 @@ export function EnclosForm({
               </div>
               <input
                 className={cn(champ, "w-0 min-w-16 flex-1 sm:w-28 sm:flex-none")}
-                inputMode="numeric"
+                {...SAISIE_TEXTE}
                 placeholder="ex. -3000"
                 aria-label={`Sérénité exacte de la monture ${i + 1}`}
                 value={txt}
@@ -150,7 +159,7 @@ export function EnclosForm({
             Niveau (0 à {CAPACITE_JAUGE.toLocaleString("fr-FR")}, « 85k » accepté)
             <input
               className={cn(champ, "max-w-56")}
-              inputMode="numeric"
+              {...SAISIE_TEXTE}
               placeholder="ex. 200000 ou 85k"
               value={b.niveau}
               onChange={(e) => setB({ ...b, niveau: e.target.value })}
@@ -175,7 +184,7 @@ export function EnclosForm({
             Niveau de la jauge {b.autre}
             <input
               className={cn(champ, "max-w-56")}
-              inputMode="numeric"
+              {...SAISIE_TEXTE}
               placeholder="ex. 120k"
               value={b.niveauAutre}
               onChange={(e) => setB({ ...b, niveauAutre: e.target.value })}

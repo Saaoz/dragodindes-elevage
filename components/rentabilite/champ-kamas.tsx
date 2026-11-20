@@ -58,8 +58,11 @@ export function ChampKamas({
       <input
         id={id}
         className={cn(champ, "tabular-nums")}
-        inputMode="decimal"
+        inputMode="text"
         autoComplete="off"
+        autoCorrect="off"
+        autoCapitalize="off"
+        spellCheck={false}
         placeholder={placeholder}
         value={texte}
         disabled={disabled}
