@@ -43,6 +43,20 @@ Tout tourne **en local** (pas de GitHub Actions).
 installé par `npm install` via le script `prepare`). Playwright utilise Chromium :
 `npx playwright install chromium` au premier usage.
 
+## Déploiement et appli installable (PWA)
+
+- **URL** : <https://dragodindes-elevage.vercel.app> (Vercel, offre Hobby). Le dépôt est relié par l'intégration Git de
+  Vercel : `main` = production, une prévisualisation par pull request. Les builds tournent chez Vercel, pas sur GitHub
+  Actions ; les tests sont lancés en local (hook `pre-push`). Les secrets (#16) iront dans les variables d'environnement Vercel.
+- **Installer sur téléphone** : Android (Chrome) : bouton « Installer l'appli » de la page d'accueil, ou menu → Installer
+  l'application. iPhone : Safari → Partager → Sur l'écran d'accueil (obligatoire pour les notifications push sur iOS).
+- **Hors ligne** : `public/sw.js` (service worker écrit à la main) met en cache l'app shell et les assets ; navigation
+  réseau d'abord avec repli sur le cache. Changer `VERSION` dans `sw.js` pour purger les anciens caches. Il contient aussi
+  des gestionnaires `push` / `notificationclick` (squelette, complété par #16).
+- **Tester en local** : le service worker n'est enregistré qu'en production, donc `npm run build && npm run start`
+  (http://localhost:3000), puis DevTools → Application. `npm run test:e2e` vérifie manifest, service worker et rechargement
+  hors ligne. Les icônes (`public/icons`) sont générées par `node scripts/generate-icons.mjs`.
+
 ## Structure
 
 - `app/` : pages (App Router) · `components/` : composants (shadcn/ui dans `components/ui`)
