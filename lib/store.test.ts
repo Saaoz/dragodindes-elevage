@@ -27,7 +27,7 @@ const st = () => useStore.getState();
 beforeEach(() => {
   mem = new MemStorage();
   vi.stubGlobal("localStorage", mem);
-  useStore.setState(defaultAppData());
+  useStore.setState({ ...defaultAppData(), futureVersion: false });
   resetDemo();
 });
 afterEach(() => {
@@ -190,6 +190,56 @@ describe("persistance", () => {
     });
     expect(() => st().setPrice("Imagiro", "g1", 1000)).not.toThrow();
     expect(st().prices.Imagiro?.g1?.v).toBe(1000);
+  });
+});
+
+describe("version future (SW en cache après déploiement)", () => {
+  const futureState = () => JSON.stringify({ version: 99, state: { ...fixture.data, server: "Orukam" } });
+
+  it("version courante : pas de drapeau, écriture normale", async () => {
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 3, state: fixture.data }));
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(false);
+    expect(st().setPrice("Imagiro", "g5", 123000)).toBe(true);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).state.prices.Imagiro.g5.v).toBe(123000);
+  });
+
+  it("version 99 : drapeau vrai, et aucune écriture après des actions", async () => {
+    mem.setItem(STORAGE_KEY, futureState());
+    const before = [...mem.m];
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(true);
+    expect(st().server).toBe("Draconiros"); // état non lu, défauts en mémoire
+
+    st().setPrice("Imagiro", "g5", 1);
+    st().setCalc({ target: 9 });
+    st().setServer("Orukam");
+    st().clearServer("Imagiro");
+    st().copyToAll("Imagiro");
+    st().importPaste("Orukam", "5 300k");
+    st().importJSON(fixtureText);
+    expect([...mem.m]).toStrictEqual(before);
+    expect(mem.getItem(STORAGE_KEY)).toBe(before[0][1]);
+  });
+
+  it("version 99 : aucune écriture même sans hydratation préalable", () => {
+    mem.setItem(STORAGE_KEY, futureState());
+    const before = [...mem.m];
+    st().setPrice("Imagiro", "g5", 1);
+    expect([...mem.m]).toStrictEqual(before);
+  });
+
+  it("retour à une version courante : le drapeau repasse à faux", async () => {
+    mem.setItem(STORAGE_KEY, futureState());
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(true);
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 3, state: fixture.data }));
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(false);
+  });
+
+  it("le magasin démo n'est jamais en version future", () => {
+    expect(useDemoStore.getState().futureVersion).toBe(false);
   });
 });
 
