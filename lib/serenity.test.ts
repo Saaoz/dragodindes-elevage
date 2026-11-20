@@ -206,6 +206,18 @@ describe("serenityPlan : Sérénité −, zone, regroupement", () => {
     expect(moins.aRemplir.message).toMatch(/déjà à −5\s000.*Sérénité −.*Sérénité \+/);
   });
 
+  it("message de remplissage : « pas besoin de revenir » sans excédent, jamais avec excédent (#33)", () => {
+    const sans = serenityPlan({ serenites: [-3000], sens: "+", niveauJauge: 0 }).aRemplir;
+    expect(sans.excedent).toBe(0);
+    expect(sans.message).toMatch(/pas besoin de revenir avant qu.elle soit vide/);
+    const avec = serenityPlan({ serenites: [-3000], sens: "+", niveauJauge: 200000 }).aRemplir;
+    expect(avec.excedent).toBe(192000);
+    expect(avec.message).not.toMatch(/pas besoin de revenir/);
+    expect(avec.message).not.toMatch(/reviens la couper/);
+    expect(avec.message).toMatch(/192\s000 points de trop.*reviens avant.*à vérifier en jeu/);
+    expect(avec.conseil).not.toMatch(/de trop/);
+  });
+
   it("aucune jauge et aucun objectif", () => {
     const plan = serenityPlan({ serenites: [0], sens: null, niveauJauge: 0 });
     expect(plan.aRemplir).toMatchObject({ statut: "dejaAtteint", points: 0 });

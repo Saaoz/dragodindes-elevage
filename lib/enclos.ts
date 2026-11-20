@@ -11,6 +11,7 @@ import {
 } from "@/lib/schema";
 import {
   planEnclos,
+  serenityPlan,
   pointsConsommes,
   SERENITE_MAX,
   tempsVidage,
@@ -177,6 +178,9 @@ export interface VueEnclos {
   alerte: AlerteEnclos | null;
   /** Retour dépassé : secondes écoulées depuis l'heure de retour (0 pile à l'heure) ; null avant (#31). */
   retardS: number | null;
+  /** Conseil de remplissage affiché sur la carte, calculé sur l'état À L'HEURE DE RETOUR (stable, #33) ;
+      null si le retour est dépassé (voir `CONSEIL_RETARD`). */
+  conseil: string | null;
   /** Heure (ms) à laquelle la jauge de sérénité est (ou sera) vide, depuis la saisie ; null sans jauge. */
   jaugeVideMs: number | null;
   /** Heure à laquelle l'autre jauge sera vide (ms), si renseignée. */
@@ -222,7 +226,24 @@ export function vueEnclos(
   const jaugeVideMs = depuisSaisie && depuisSaisie.tempsVide > 0 ? heure(depuisSaisie.tempsVide) : null;
   const autreVideMs =
     enclos.autreJauge && saisieLe !== null ? Math.round(saisieLe + tempsVidage(enclos.niveauAutre) * 1000) : null;
-  return { index, plan, retour, alerte, retardS, jaugeVideMs, autreVideMs };
+
+  /* Conseil de remplissage (#33) : il ne sert qu'une fois sur place, donc il est calculé à l'heure de retour
+     (il ne change plus chaque seconde) et ne dit jamais « pas besoin de revenir » à côté d'une heure de retour. */
+  let conseil: string | null = null;
+  if (retardS === null) {
+    if (!retour) conseil = plan.aRemplir.conseil;
+    else {
+      /* À l'heure de retour la jauge est à remplacer : on part de ses sérénités estimées et d'une jauge vide. */
+      const etatRetour = planEnclos(enclos, retour.quandMs, options).etat;
+      const auRetour = serenityPlan({ serenites: etatRetour.serenites, sens: null, niveauJauge: 0, zone: options.zone }).aRemplir;
+      const sansConseil = auRetour.statut === "dejaAtteint" && !options.zone;
+      const c = sansConseil ? "" : auRetour.conseil.replace(/ : pas besoin de revenir avant qu.elle soit vide\.$/, ".");
+      conseil = c ? `À ton retour : ${c.charAt(0).toLowerCase()}${c.slice(1)}` : "";
+      if (depuisSaisie && depuisSaisie.aRemplir.excedent > 0)
+        conseil += `${conseil ? " " : ""}La jauge contient plus de points que nécessaire : reviens avant ${formatHeure(retour.quandMs, maintenantMs)} pour changer de jauge (à vérifier en jeu : peut-on retirer le carburant ?).`;
+    }
+  }
+  return { index, plan, retour, alerte, retardS, conseil: conseil || null, jaugeVideMs, autreVideMs };
 }
 
 /* ---------- retour dépassé (#31) ---------- */

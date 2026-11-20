@@ -49,7 +49,7 @@ function evenementAgenda(enclos: Enclos, vue: VueEnclos, maintenantMs: number, m
   const lignes = [`Reviens à « ${nom} » avant ${avant}.`];
   if (vue.alerte)
     lignes.push(`Une monture atteindra ${formatSerenite(vue.alerte.valeur)} : après, ${formatNombre(vue.alerte.gaspille)} points de jauge seraient gaspillés.`);
-  if (vue.plan.aRemplir.message) lignes.push(vue.plan.aRemplir.message);
+  if (vue.conseil) lignes.push(vue.conseil);
   return {
     uid: `enclos-${vue.index + 1}@dragodindes-elevage`,
     titre: `${nom} : reviens avant ${avant}`,
@@ -277,7 +277,7 @@ export function EnclosCard({
                 options={OBJECTIFS}
               />
             </div>
-            {plan.aRemplir.message && <p>{plan.aRemplir.message}</p>}
+            {vue.conseil && <p>{vue.conseil}</p>}
             {plan.aRemplir.statut === "tropEcartees" && plan.aRemplir.groupes && (
               <p className="text-warning">
                 Regroupement conseillé :{" "}

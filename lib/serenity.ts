@@ -160,8 +160,10 @@ export interface Remplissage {
   ecartMax: number;
   /** Proposition de regroupement (indices des montures), seulement si `tropEcartees`. */
   groupes: number[][] | null;
-  /** Message prêt à afficher, en français. */
+  /** Message prêt à afficher, en français (conseil + avertissement d'excédent). */
   message: string;
+  /** Le conseil seul, sans l'avertissement d'excédent (c'est ce que l'écran date à l'heure de retour, #33). */
+  conseil: string;
 }
 
 /** Résultat de `serenityPlan`. */
@@ -360,10 +362,17 @@ function calculerRemplissage(
     ecartMax: 0,
     groupes: null,
     message: "Aucune monture dans l'enclos.",
+    conseil: "Aucune monture dans l'enclos.",
   };
   if (!serenites.length) return vide;
   if (sensActif === null && cible === undefined && !zone)
-    return { ...vide, statut: "dejaAtteint", atteignable: true, message: "Aucune jauge de sérénité active et aucun objectif." };
+    return {
+      ...vide,
+      statut: "dejaAtteint",
+      atteignable: true,
+      message: "Aucune jauge de sérénité active et aucun objectif.",
+      conseil: "Aucune jauge de sérénité active et aucun objectif.",
+    };
 
   const bas = Math.min(...serenites);
   const haut = Math.max(...serenites);
@@ -438,7 +447,7 @@ function calculerRemplissage(
     case "ok":
       message = `Mets ${fmt(points)} points au total dans la jauge ${nomJauge}${
         aAjouter > 0 && niveauActif > 0 ? ` (ajoute ${fmt(aAjouter)})` : ""
-      } : pas besoin de revenir avant qu'elle soit vide.`;
+      }${excedent > 0 ? "." : " : pas besoin de revenir avant qu'elle soit vide."}`;
       break;
     case "dejaAtteint":
       message = "Objectif déjà atteint : aucun point de sérénité à mettre.";
@@ -457,9 +466,11 @@ function calculerRemplissage(
     default:
       message = "";
   }
-  /* déjà à ±5 000 (sans zone) : le message dit déjà que les points restants sont gaspillés */
+  const conseil = message;
+  /* Excédent : on ne promet pas de « couper » la jauge (à vérifier en jeu, docs/serenite.md) ; il faut revenir avant.
+     Déjà à ±5 000 (sans zone) : le message dit déjà que les points restants sont gaspillés. */
   if (excedent > 0 && statut !== "sensIncoherent" && !(statut === "horsZone" && !zone))
-    message += ` Attention : la jauge contient ${fmt(excedent)} points de trop, reviens la couper à temps.`;
+    message += ` Attention : la jauge contient ${fmt(excedent)} points de trop : reviens avant le moment indiqué pour changer de jauge (à vérifier en jeu : peut-on retirer le carburant ?).`;
 
   return {
     statut,
@@ -475,6 +486,7 @@ function calculerRemplissage(
     ecartMax,
     groupes,
     message,
+    conseil,
   };
 }
 
