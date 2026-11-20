@@ -576,3 +576,132 @@ test("« changer » → « Annuler le rappel » : le bouton revient après recha
   await expect(carte.getByTestId("etat-rappel")).toHaveCount(0);
   await expect(carte.getByTestId("ancien-rappel")).toBeVisible(); // l'événement déjà créé reste à supprimer
 });
+
+/* #56 : le focus ne tombe jamais sur <body> après une action sur la saisie ; l'annonce vocale dit ce qui s'est passé. */
+const annonceEnclos = (page: Page) => page.getByTestId("annonce-enclos");
+const pasBody = (page: Page) => expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).not.toBe("BODY");
+
+test("focus et annonces : ouvrir, enregistrer (carte re-triée), annuler, vider (#56)", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  const c1 = page.getByRole("region", { name: "Enclos 1" });
+  const c3 = page.getByRole("region", { name: "Enclos 3" });
+
+  /* « Saisir cet enclos » : le focus va sur le premier champ */
+  await c1.getByRole("button", { name: "Saisir cet enclos" }).click();
+  await expect(page.getByLabel("Nom de l'enclos")).toBeFocused();
+  /* « Annuler » : retour sur le bouton qui a ouvert le formulaire */
+  await c1.getByRole("button", { name: "Annuler" }).click();
+  await expect(c1.getByRole("button", { name: "Saisir cet enclos" })).toBeFocused();
+  await expect(annonceEnclos(page)).toHaveText("Saisie annulée.");
+
+  /* enregistrer l'enclos 1 (-3000) */
+  await c1.getByRole("button", { name: "Saisir cet enclos" }).click();
+  await page.getByLabel("Sérénité exacte de la monture 1").fill("-3000");
+  await page.getByRole("button", { name: "Sérénité +" }).click();
+  await page.getByPlaceholder("ex. 200000 ou 85k").fill("200000");
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+  await expect(c1.getByRole("heading", { level: 2, name: "Enclos 1" })).toBeFocused();
+  await expect(annonceEnclos(page)).toHaveText(/^Enclos 1 enregistré : reviens avant 21\sh\s33\.$/);
+
+  /* « Je quitte l'enclos » : premier champ, formulaire prérempli */
+  await c1.getByRole("button", { name: "Je quitte l’enclos" }).click();
+  await expect(page.getByLabel("Nom de l'enclos")).toBeFocused();
+  await c1.getByRole("button", { name: "Annuler" }).click();
+  await expect(c1.getByRole("button", { name: "Je quitte l’enclos" })).toBeFocused();
+
+  /* l'enclos 3, plus urgent, remonte avant l'enclos 1 : le focus le suit (retrouvé par son id) */
+  await c3.getByRole("button", { name: "Saisir cet enclos" }).click();
+  await page.getByLabel("Sérénité exacte de la monture 1").fill("1000");
+  await page.getByRole("button", { name: "Sérénité +" }).click();
+  await page.getByPlaceholder("ex. 200000 ou 85k").fill("200000");
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+  await expect(page.getByRole("heading", { level: 2 }).first()).toHaveText("Enclos 3");
+  await expect(c3.getByRole("heading", { level: 2, name: "Enclos 3" })).toBeFocused();
+  await expect(annonceEnclos(page)).toHaveText(/^Enclos 3 enregistré : reviens avant 21\sh\s\d\d\.$/);
+
+  /* « Vider » : « Garder » garde le comportement actuel ; « Oui, vider » → bouton « Saisir cet enclos » */
+  await c3.getByRole("button", { name: "Vider cet enclos" }).click();
+  await expect(c3.getByRole("button", { name: "Garder" })).toBeFocused();
+  await c3.getByRole("button", { name: "Oui, vider" }).click();
+  await expect(c3.getByRole("button", { name: "Saisir cet enclos" })).toBeFocused();
+  await expect(annonceEnclos(page)).toHaveText("Enclos 3 vidé.");
+  await pasBody(page);
+});
+
+test("focus : enregistrer un enclos sans heure de retour annonce la raison (#56)", async ({ page }) => {
+  await page.goto("/enclos");
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  await carte.getByRole("button", { name: "Saisir cet enclos" }).click();
+  await page.getByLabel("Sérénité exacte de la monture 1").fill("-3000");
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+  await expect(carte.getByRole("heading", { level: 2, name: "Enclos 1" })).toBeFocused();
+  await expect(annonceEnclos(page)).toHaveText("Enclos 1 enregistré : aucune jauge de sérénité active, pas d’heure de retour à prévoir.");
+});
+
+test("clavier seul : saisir, enregistrer, quitter, annuler (Échap), vider, sans toucher à la souris (#56)", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  await carte.getByRole("button", { name: "Saisir cet enclos" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Nom de l'enclos")).toBeFocused();
+
+  /* Échap ferme le formulaire et rend le focus au bouton d'origine */
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("form", { name: "Saisie de l'enclos" })).toHaveCount(0);
+  await expect(carte.getByRole("button", { name: "Saisir cet enclos" })).toBeFocused();
+
+  /* Entrée dans un champ enregistre : Tab jusqu'à la sérénité exacte, Entrée valide */
+  await page.keyboard.press("Enter");
+  await page.getByLabel("Sérénité exacte de la monture 1").focus();
+  await page.keyboard.type("-3000");
+  await page.getByRole("button", { name: "Sérénité +" }).focus();
+  await page.keyboard.press("Enter");
+  await page.getByPlaceholder("ex. 200000 ou 85k").focus();
+  await page.keyboard.type("200000");
+  await page.keyboard.press("Enter");
+  await expect(carte.getByRole("heading", { level: 2, name: "Enclos 1" })).toBeFocused();
+  await expect(annonceEnclos(page)).toContainText("Enclos 1 enregistré : reviens avant");
+
+  /* Tab depuis l'en-tête atteint « Je quitte l'enclos » */
+  await page.keyboard.press("Tab");
+  await expect(carte.getByRole("button", { name: "Je quitte l’enclos" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(page.getByLabel("Nom de l'enclos")).toBeFocused();
+  await page.keyboard.press("Escape");
+  await expect(carte.getByRole("button", { name: "Je quitte l’enclos" })).toBeFocused();
+
+  /* vider au clavier */
+  await carte.getByRole("button", { name: "Vider cet enclos" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(carte.getByRole("button", { name: "Garder" })).toBeFocused();
+  await page.keyboard.press("Tab");
+  await expect(carte.getByRole("button", { name: "Oui, vider" })).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(carte.getByRole("button", { name: "Saisir cet enclos" })).toBeFocused();
+  await expect(annonceEnclos(page)).toHaveText("Enclos 1 vidé.");
+});
+
+test("focus du choix de rappel inchangé après une ressaisie (#51, #53, #56)", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisir(page);
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  const dl = page.waitForEvent("download");
+  await programmerAvec(page, carte, /Dans mon agenda/);
+  await dl;
+  await expect(changer(carte)).toBeFocused();
+  await ressaisir(page, carte, "-1000");
+  await expect(carte.getByRole("heading", { level: 2, name: "Enclos 1" })).toBeFocused();
+  /* la méthode est mémorisée : un appui au clavier programme, puis le focus passe à « changer » */
+  const dl2 = page.waitForEvent("download");
+  await boutonRappel(carte).focus();
+  await page.keyboard.press("Enter");
+  await dl2;
+  await expect(changer(carte)).toBeFocused();
+  await page.keyboard.press("Enter");
+  await expect(choix(page)).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(changer(carte)).toBeFocused();
+});

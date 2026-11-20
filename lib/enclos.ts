@@ -288,6 +288,12 @@ export function raisonRetour(vue: VueEnclos, maintenantMs: number): string | nul
   }
 }
 
+/** Annonce vocale (aria-live) après « Enregistrer » : l'heure de retour, ou pourquoi il n'y en a pas. */
+export function annonceEnregistre(vue: VueEnclos, nom: string, maintenantMs: number): string {
+  if (vue.retour) return `${nom} enregistré : reviens avant ${formatHeure(vue.retour.quandMs, maintenantMs)}.`;
+  return `${nom} enregistré : ${vue.plan.etat.sens ? "jauge de sérénité vide à la saisie" : "aucune jauge de sérénité active"}, pas d’heure de retour à prévoir.`;
+}
+
 /** Quoi faire quand l'heure de retour est passée : il n'y a plus de rappel à prévoir, il faut ressaisir. */
 export const CONSEIL_RETARD =
   "Retourne à l’enclos, regarde la sérénité des montures et le niveau des jauges, puis clique « Je quitte l’enclos » : une nouvelle heure de retour sera calculée.";

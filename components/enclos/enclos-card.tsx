@@ -96,6 +96,7 @@ export function EnclosCard({
   onObjectif,
   onSave,
   onClear,
+  onAnnonce,
   rappel: reglageRappel,
 }: {
   enclos: Enclos;
@@ -106,6 +107,8 @@ export function EnclosCard({
   onObjectif: (o: Objectif) => void;
   onSave: (e: Enclos) => void;
   onClear: () => void;
+  /* annonce vocale polie (région aria-live du panneau) */
+  onAnnonce: (texte: string) => void;
   rappel: RappelCarte;
 }) {
   const nom = enclos.nom || `Enclos ${vue.index + 1}`;
@@ -127,6 +130,16 @@ export function EnclosCard({
     if (focusTick > 0) (changerRef.current ?? boutonRef.current)?.focus();
   }, [focusTick]);
   const [confirmeVider, setConfirmeVider] = useState(false);
+  /* Focus après saisie : l'élément qui avait le focus disparaît (formulaire fermé, carte re-triée, enclos vidé) ;
+     on le pose explicitement sur l'en-tête de la carte (enregistré) ou sur le bouton qui ouvre la saisie (annulé, vidé). */
+  const enteteRef = useRef<HTMLHeadingElement>(null);
+  const ouvrirRef = useRef<HTMLButtonElement>(null);
+  const [demandeFocus, setDemandeFocus] = useState<{ cible: "entete" | "ouvrir"; n: number } | null>(null);
+  useEffect(() => {
+    if (!demandeFocus) return;
+    (demandeFocus.cible === "entete" ? enteteRef : ouvrirRef).current?.focus();
+  }, [demandeFocus]);
+  const demander = (cible: "entete" | "ouvrir") => setDemandeFocus((d) => ({ cible, n: (d?.n ?? 0) + 1 }));
   const saisi = enclos.saisieLe !== null;
   const { retour, alerte, plan } = vue;
   const reste = retour ? (retour.quandMs - maintenantMs) / 1000 : null;
@@ -245,7 +258,13 @@ export function EnclosCard({
     >
       <header className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <h2 className="truncate text-lg font-semibold">{nom}</h2>
+          <h2
+            ref={enteteRef}
+            tabIndex={-1}
+            className="truncate rounded-sm text-lg font-semibold outline-none focus-visible:ring-3 focus-visible:ring-ring/50"
+          >
+            {nom}
+          </h2>
           {premier && retour && (
             <span className="mt-0.5 inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
               Le plus urgent
@@ -253,7 +272,7 @@ export function EnclosCard({
           )}
         </div>
         {!edition && (
-          <Button variant={saisi ? "outline" : "default"} onClick={() => setEdition(true)}>
+          <Button ref={ouvrirRef} variant={saisi ? "outline" : "default"} onClick={() => setEdition(true)}>
             {saisi ? "Je quitte l’enclos" : "Saisir cet enclos"}
           </Button>
         )}
@@ -267,8 +286,13 @@ export function EnclosCard({
             setAnnonce("");
             onSave(e);
             setEdition(false);
+            demander("entete");
           }}
-          onCancel={() => setEdition(false)}
+          onCancel={() => {
+            setEdition(false);
+            demander("ouvrir");
+            onAnnonce("Saisie annulée.");
+          }}
         />
       ) : !saisi ? (
         <>
@@ -450,6 +474,7 @@ export function EnclosCard({
                 onClick={() => {
                   setConfirmeVider(false);
                   onClear();
+                  demander("ouvrir");
                 }}
               >
                 Oui, vider

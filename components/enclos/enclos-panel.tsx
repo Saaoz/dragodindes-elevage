@@ -8,7 +8,7 @@ import { magasinActif, useApp, useUi } from "@/components/app-state";
 import { BoutonDemo } from "@/components/commun/bouton-demo";
 import { Choix } from "@/components/commun/choix";
 import { EnTete, Page } from "@/components/commun/en-tete";
-import { formatCompteARebours, trierParUrgence, vueEnclos, type Objectif } from "@/lib/enclos";
+import { annonceEnregistre, formatCompteARebours, trierParUrgence, vueEnclos, type Objectif } from "@/lib/enclos";
 import { enclosSchema, MARGES_RAPPEL_MIN, NB_ENCLOS, type Enclos } from "@/lib/schema";
 import { annulerApi, enJson, planifierApi } from "@/lib/push/client";
 import { methodesDisponibles, phraseSansPush, type CapacitePush, type MethodeRappel } from "@/lib/rappel";
@@ -32,6 +32,8 @@ export function EnclosPanel() {
   /* Message propre à chaque enclos (succès / échec du rappel push) et opération en cours. */
   const [notes, setNotes] = useState<(string | null)[]>(() => Array(NB_ENCLOS).fill(null));
   const [enCours, setEnCours] = useState<boolean[]>(() => Array(NB_ENCLOS).fill(false));
+  /* Annonce vocale polie : la région existe avant son contenu, pour que le lecteur d'écran la lise. */
+  const [annonce, setAnnonce] = useState("");
   const noter = (i: number, n: string | null) => setNotes((p) => p.map((x, k) => (k === i ? n : x)));
   const occuper = (i: number, b: boolean) => setEnCours((p) => p.map((x, k) => (k === i ? b : x)));
 
@@ -121,19 +123,27 @@ export function EnclosPanel() {
     void planifierRappel(i, { ...e, rappel: null }, e.objectif);
   };
 
-  const sauver = (i: number, e: Enclos) => {
+  const sauver = (i: number, e: Enclos, annoncer = true) => {
     const magasin = magasinActif().getState();
     const ancien = magasin.enclos[i];
     /* l'objectif choisi reste celui de l'enclos, même après une nouvelle saisie */
     if (!magasin.setEnclos(i, { ...e, objectif: ancien.objectif })) return;
     noter(i, null);
+    if (annoncer) {
+      const nouveau = magasinActif().getState().enclos[i];
+      const t = nouveau.saisieLe ?? maintenant;
+      setAnnonce(annonceEnregistre(vueEnclos(nouveau, i, t), nouveau.nom || `Enclos ${i + 1}`, t));
+    }
     if (demo) return;
     /* Ressaisie ou enclos vidé : l'ancien rappel est annulé, puis replanifié si cet appareil est abonné. */
     void annulerRappel(ancien);
     const nouveau = magasinActif().getState().enclos[i];
     if (nouveau.saisieLe !== null && pushActif) void planifierRappel(i, nouveau, nouveau.objectif);
   };
-  const vider = (i: number) => sauver(i, enclosSchema.parse({ nom: enclos[i].nom }));
+  const vider = (i: number) => {
+    sauver(i, enclosSchema.parse({ nom: enclos[i].nom }), false);
+    setAnnonce(`${enclos[i].nom || `Enclos ${i + 1}`} vidé.`);
+  };
 
   const changerObjectif = (i: number, o: Objectif) => {
     const avant = vueEnclos(enclos[i], i, maintenant).retour?.quandMs;
@@ -194,6 +204,10 @@ export function EnclosPanel() {
         <span className="text-muted-foreground">avant l&apos;heure de retour.</span>
       </div>
 
+      <p role="status" aria-live="polite" className="sr-only" data-testid="annonce-enclos">
+        {annonce}
+      </p>
+
       {!pret ? (
         <p className="text-muted-foreground">Chargement…</p>
       ) : (
@@ -222,6 +236,7 @@ export function EnclosPanel() {
               }}
               onSave={(e) => sauver(v.index, e)}
               onClear={() => vider(v.index)}
+              onAnnonce={setAnnonce}
             />
           ))}
         </div>

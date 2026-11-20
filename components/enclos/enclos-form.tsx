@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Choix } from "@/components/commun/choix";
@@ -46,6 +46,9 @@ export function EnclosForm({
 }) {
   const [b, setB] = useState<Brouillon>(initial);
   const [erreurs, setErreurs] = useState<string[]>([]);
+  /* à l'ouverture, le focus va sur le premier champ : le lecteur d'écran annonce « Nom de l'enclos » */
+  const nomRef = useRef<HTMLInputElement>(null);
+  useEffect(() => nomRef.current?.focus(), []);
 
   const setSerenite = (i: number, v: string) =>
     setB((p) => ({ ...p, serenites: p.serenites.map((x, k) => (k === i ? v : x)) }));
@@ -58,10 +61,17 @@ export function EnclosForm({
   };
 
   return (
-    <form onSubmit={enregistrer} className="flex flex-col gap-5" aria-label="Saisie de l'enclos">
+    <form
+      onSubmit={enregistrer}
+      onKeyDown={(ev) => {
+        if (ev.key === "Escape" && !ev.defaultPrevented) onCancel();
+      }}
+      className="flex flex-col gap-5"
+      aria-label="Saisie de l'enclos"
+    >
       <label className="flex flex-col gap-1.5 text-sm font-medium">
         Nom de l&apos;enclos
-        <input className={champ} value={b.nom} maxLength={60} onChange={(e) => setB({ ...b, nom: e.target.value })} />
+        <input ref={nomRef} className={champ} value={b.nom} maxLength={60} onChange={(e) => setB({ ...b, nom: e.target.value })} />
       </label>
 
       <fieldset className="flex flex-col gap-2.5">
