@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { InstallApp } from "@/components/install-app";
 import { ThemeToggle } from "@/components/theme-toggle";
 
@@ -5,6 +6,13 @@ export default function Home() {
   return (
     <main className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center gap-6 p-6">
       <h1 className="text-3xl font-bold">Élevage de dragodindes</h1>
+      <Link
+        href="/enclos"
+        className="flex flex-col gap-1 rounded-xl border-2 border-primary bg-primary/10 p-4 hover:bg-primary/15"
+      >
+        <span className="text-lg font-semibold">Mes enclos →</span>
+        <span className="text-sm text-muted-foreground">À quelle heure revenir à chaque enclos : sérénité, rappels agenda.</span>
+      </Link>
       <p className="text-lg font-medium">Migration en cours</p>
       <p className="text-muted-foreground">
         Cet outil de calcul pour l&apos;élevage de dragodindes (Dofus 3.5) est en cours de
