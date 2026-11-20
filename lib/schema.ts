@@ -1,0 +1,115 @@
+/* =====================================================================
+   schema.ts — schémas Zod de l'état de l'appli (les types TS en sont déduits)
+   CalcSettings reste défini dans lib/calc.ts (source de vérité du calcul) :
+   la compatibilité est vérifiée à la compilation en bas de ce fichier.
+   ===================================================================== */
+
+import { z } from "zod";
+import { DEFAULT_CALC, type CalcSettings } from "./calc";
+import { CAPACITE_JAUGE, SERVEURS } from "./data";
+
+export const SERVER_IDS = SERVEURS.map((s) => s.id);
+export type ServerId = (typeof SERVEURS)[number]["id"];
+export const PRICE_KEYS = [
+  "g1", "g2", "g3", "g4", "g5", "g6", "g7", "g8", "g9", "g10", "neurone", "optimakina", "genetons",
+] as const;
+export type PriceKey = (typeof PRICE_KEYS)[number];
+
+export const NB_ENCLOS = 6;
+
+const serverId = z.enum(SERVEURS.map((s) => s.id) as [ServerId, ...ServerId[]]);
+const intMin = (min: number) => z.number().int().min(min);
+
+/* ---------- réglages du calcul ---------- */
+export const calcSchema = z.object({
+  target: z.number().int().min(2).max(10).default(DEFAULT_CALC.target),
+  genA: z.number().int().min(1).max(10).default(DEFAULT_CALC.genA),
+  genB: z.number().int().min(1).max(10).default(DEFAULT_CALC.genB),
+  lvlA: z.number().int().min(1).max(200).default(DEFAULT_CALC.lvlA),
+  lvlB: z.number().int().min(1).max(200).default(DEFAULT_CALC.lvlB),
+  opti: z.boolean().default(DEFAULT_CALC.opti),
+  /* 3.7 : +20 % ; 10 (3.5) reste accepté et est conservé tel quel (choix de l'utilisateur) */
+  optiBonus: z.union([z.literal(10), z.literal(20)]).default(DEFAULT_CALC.optiBonus as 10 | 20),
+  repro: z.boolean().default(DEFAULT_CALC.repro),
+  origin: z.enum(["hdv", "capture"]).default(DEFAULT_CALC.origin),
+  parentsMode: z.enum(["extract", "sell", "none"]).default(DEFAULT_CALC.parentsMode),
+  sterileSell: intMin(0).default(DEFAULT_CALC.sterileSell),
+  fuel: intMin(0).default(DEFAULT_CALC.fuel),
+  priceTarget: intMin(0).default(DEFAULT_CALC.priceTarget),
+  priceFail: intMin(0).default(DEFAULT_CALC.priceFail),
+  countGenetons: z.boolean().default(DEFAULT_CALC.countGenetons),
+  takeza: z.boolean().default(DEFAULT_CALC.takeza),
+});
+export type CalcState = z.infer<typeof calcSchema>;
+export const defaultCalc = (): CalcState => calcSchema.parse({});
+
+/* ---------- prix datés : { v: kamas (> 0), t: horodatage ms } ---------- */
+export const priceEntrySchema = z.object({
+  v: z.number().int().positive(),
+  t: z.number().finite().nonnegative(),
+});
+export type PriceEntry = z.infer<typeof priceEntrySchema>;
+
+const serverPricesSchema = z.object(
+  Object.fromEntries(PRICE_KEYS.map((k) => [k, priceEntrySchema.optional()])) as Record<
+    PriceKey,
+    z.ZodOptional<typeof priceEntrySchema>
+  >,
+);
+export type ServerPrices = z.infer<typeof serverPricesSchema>;
+
+export const pricesSchema = z.object(
+  Object.fromEntries(SERVER_IDS.map((id) => [id, serverPricesSchema.optional()])) as Record<
+    ServerId,
+    z.ZodOptional<typeof serverPricesSchema>
+  >,
+);
+export type PricesState = z.infer<typeof pricesSchema>;
+
+/* ---------- enclos (#2) : schéma seulement, pas d'UI ---------- */
+export const AUTRES_JAUGES = ["Endurance", "Maturité", "Amour", "Expérience de monture"] as const;
+
+export const monture = z.object({
+  nom: z.string().max(60).default(""),
+  /* sérénité propre à chaque monture : -5 000 à +5 000 */
+  serenite: z.number().int().min(-5000).max(5000).default(0),
+});
+
+export const enclosSchema = z.object({
+  nom: z.string().max(60).default(""),
+  montures: z.array(monture).max(50).default([]),
+  /* Sérénité + et − sont liées : une seule est active à la fois */
+  jaugeSerenite: z.enum(["+", "-"]).nullable().default(null),
+  niveauSerenite: z.number().int().min(0).max(CAPACITE_JAUGE).default(0),
+  autreJauge: z.enum(AUTRES_JAUGES).nullable().default(null),
+  niveauAutre: z.number().int().min(0).max(CAPACITE_JAUGE).default(0),
+  /* horodatage de la saisie des niveaux (ms), null si jamais saisi */
+  saisieLe: z.number().finite().nonnegative().nullable().default(null),
+});
+export type Enclos = z.infer<typeof enclosSchema>;
+
+export const defaultEnclos = (): Enclos[] =>
+  Array.from({ length: NB_ENCLOS }, (_, i) => enclosSchema.parse({ nom: `Enclos ${i + 1}` }));
+
+/* ---------- état complet persisté / exporté ---------- */
+export const appDataSchema = z.object({
+  server: serverId.default(SERVER_IDS[0]),
+  theme: z.enum(["dark", "light"]).default("dark"),
+  matB: z.enum(["same", "gen1"]).default("same"),
+  calc: calcSchema.prefault({}),
+  prices: pricesSchema.prefault({}),
+  enclos: z.array(enclosSchema).length(NB_ENCLOS).prefault(defaultEnclos()),
+});
+export type AppData = z.infer<typeof appDataSchema>;
+export const defaultAppData = (): AppData => appDataSchema.parse({});
+
+/* ---------- enveloppe d'export JSON ---------- */
+export const APP_ID = "dd-elevage";
+export const EXPORT_SCHEMA_VERSION = 3;
+
+/* ---------- compatibilité avec CalcSettings (lib/calc.ts), vérifiée à la compilation ----------
+   Le schéma produit un CalcSettings valide (optiBonus 10|20 est plus étroit que number : sens unique)
+   et porte exactement les mêmes clés (un champ ajouté d'un seul côté casse la compilation). */
+type KeysEq<A, B> = [keyof A] extends [keyof B] ? ([keyof B] extends [keyof A] ? true : false) : false;
+export const calcSchemaMatchesCalcSettings: KeysEq<CalcState, CalcSettings> = true;
+export const toCalcSettings = (c: CalcState): CalcSettings => c;
