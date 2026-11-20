@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Élevage Dragodindes — Dofus 3.5 (outil interne)</title>
+<title>Élevage Dragodindes — Dofus 3.7 (outil interne)</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
 <a class="skip" href="#main">Aller au contenu</a>
 <header>
   <h1>🦃 Élevage de dragodindes</h1>
-  <span class="sub">Outil interne · Dofus 3.5 (refonte du 3 mars 2026)</span>
+  <span class="sub">Outil interne · Dofus 3.7 (mise à jour du 6 octobre 2026 ; refonte de l'élevage en 3.5, le 3 mars 2026)</span>
   <div class="srv">
     <span id="saveState" class="save" role="status" aria-live="polite"></span>
     <label for="srvGlobal" style="margin:0">Serveur actif</label><select id="srvGlobal" style="width:auto"></select>
@@ -112,7 +112,7 @@
   <div class="card">
     <p><b>Chance = 30 % + 0,15 % × (niveau parent A + niveau parent B) + bonus Optimakina</b></p>
     <ul><li>Deux parents niveau 100 : 60 %. Deux parents niveau 200 : 90 %.</li>
-      <li>Optimakina (+10 %) avec deux parents niveau 200 → <b>100 %</b>.</li>
+      <li>Optimakina (+20 % en 3.7) avec deux parents niveau 200 → <b>100 %</b> (plafonné) ; elle compense désormais bien mieux des parents moins hauts en niveau.</li>
       <li>Une couleur répétée dans l'arbre généalogique (limité aux grands-parents) augmente ses chances d'apparaître.</li></ul>
   </div>
   <h3>Enclos : déblocage par niveau de métier</h3>
@@ -122,10 +122,10 @@
   <table><thead><tr><th>Jauge</th><th>Effet</th></tr></thead><tbody id="tblJauges"></tbody></table>
   <h3>Tiers de jauge et vitesse d'XP</h3>
   <table><thead><tr><th>Tier</th><th>Plage</th><th>Durée de vidage</th><th>XP / seconde (Mangeoire)</th></tr></thead><tbody id="tblTiers"></tbody></table>
-  <p style="color:var(--mut);font-size:13px">Jauge pleine (100 000) ≈ 17 h 48. Plus c'est plein, plus ça donne vite… et plus ça se vide vite.</p>
+  <p style="color:var(--mut);font-size:13px">Jauge pleine (200 000) ≈ 35 h 37 (3.5 : 100 000 ≈ 17 h 48). Vitesses par tier inchangées (10/20/30/40 pts par 10 s). Plus c'est plein, plus ça donne vite… et plus ça se vide vite.</p>
   <h3>Carburants</h3>
   <table><thead><tr><th>Carburant</th><th>Tier max</th><th>Niveau métier</th><th>Prix Gigantesque (poussière)</th></tr></thead><tbody id="tblCarb"></tbody></table>
-  <p style="color:var(--mut);font-size:13px">5 tailles, de Minuscule (1 000 de durabilité) à Gigantesque (5 000). Adèle Vage en [-18,1] vend les Gigantesques contre de la poussière ; dispo aussi à l'HDV.</p>
+  <p style="color:var(--mut);font-size:13px">5 tailles, de Minuscule (2 000 de durabilité) à Gigantesque (10 000), valeurs doublées en 3.7 (1 000 à 5 000 en 3.5). Adèle Vage en [-18,1] vend les Gigantesques contre de la poussière ; dispo aussi à l'HDV.</p>
   <h3>Makinas & capacités</h3>
   <table><thead><tr><th>Makina</th><th>Effet</th></tr></thead><tbody id="tblMakinas"></tbody></table>
   <ul>
@@ -242,18 +242,20 @@
   <ul id="srcList"></ul>
   <h3>Où les sources se contredisent</h3>
   <table><thead><tr><th>Sujet</th><th>Version A</th><th>Version B</th></tr></thead><tbody>
-    <tr><td>Bonus de l'Optimakina</td><td>+10 % (Next Stage, Pros)</td><td>+20 % (Noobs). Réglable dans le simulateur.</td></tr>
+    <tr><td>Bonus de l'Optimakina</td><td>+10 % (3.5 : Next Stage, Pros, et un conseil final du guide Noobs non mis à jour)</td><td>+20 % (3.7 : notes de version relayées par Noobs, Sigilos, JeuxEnd). Retenu : +20 %.</td></tr>
     <tr><td>XP métier par accouplement</td><td>10 XP × génération × monture</td><td>30 × génération × monture</td></tr>
-    <tr><td>Capacité de la jauge</td><td>100 000 (2 sources)</td><td>200 000 (1 source)</td></tr>
-    <tr><td>Animakina</td><td>Capacité aléatoire (2 sources)</td><td>Choix du sexe du bébé (1 source)</td></tr>
-    <tr><td>Probabilités de capacité</td><td>27 / 27 / 27 / 14 / 5 %</td><td>8 / 8 / 6 / 3 %</td></tr>
+    <tr><td>Capacité de la jauge</td><td>100 000 (3.5 : Next Stage, Pros, DAFOUS)</td><td>200 000 (3.7 : Noobs, Duffus, Sigilos, JeuxEnd). Retenu : 200 000, paliers 80 / 140 / 180 / 200 k.</td></tr>
+    <tr><td>Durée de vidage du tier 4</td><td>1 h 23 (tableau du guide Noobs, cohérent avec 20 000 ÷ 4 pts/s)</td><td>42 min (résumé du même guide, valeur 3.5 restée)</td></tr>
+    <tr><td>Durabilité des carburants</td><td>1 000 à 5 000 (3.5)</td><td>2 000 à 10 000 (3.7, « valeur doublée » : Noobs, JeuxEnd). Sigilos cite 6 000 pour un Normal, cohérent.</td></tr>
+    <tr><td>Animakina</td><td>Capacité aléatoire (3.5)</td><td>Choix du sexe du bébé (3.7 : Noobs, Sigilos). Retenu.</td></tr>
+    <tr><td>Probabilités de capacité</td><td>27 / 27 / 27 / 14 / 5 % (3.5, avec Précoce)</td><td>8 / 8 / 6 / 3 % (3.7 : Amoureuse, Endurante, Sage, Reproductrice ; Précoce supprimée). Retenu.</td></tr>
     <tr><td>Bébés par accouplement</td><td>1 (2 avec Reproducteur)</td><td>« jusqu'à 4 » (guide qui mélange l'ancien système)</td></tr>
   </tbody></table>
   <div class="warn">J'ai retenu la version majoritaire ou la plus cohérente, mais compare toujours avec le jeu. Ce que le simulateur suppose : un bébé raté vaut le prix que tu indiques (par défaut la génération juste en dessous) ; la capacité Reproducteur donne un second bébé avec les mêmes chances.</div>
 </section>
 
 </main>
-<footer>Outil interne · données Dofus 3.5 recueillies en novembre 2026 · aucune donnée envoyée : tout reste dans ton navigateur · <a href="tests.html">tests du calcul</a></footer>
+<footer>Outil interne · données Dofus 3.7 recueillies en novembre 2026 · aucune donnée envoyée : tout reste dans ton navigateur · <a href="tests.html">tests du calcul</a></footer>
 <script src="data.js"></script>
 <script src="calc.js"></script>
 <script src="store.js"></script>
