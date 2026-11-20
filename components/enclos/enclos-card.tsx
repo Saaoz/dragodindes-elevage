@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { BellRing, CalendarPlus, Clock, TriangleAlert } from "lucide-react";
+import { BellRing, Clock, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Choix } from "@/components/commun/choix";
 import { VisageIcone } from "@/components/commun/visage";
@@ -15,7 +15,6 @@ import {
   formatNombre,
   formatSerenite,
   heureRappel,
-  libelleMarge,
   raisonRetour,
   texteAlerte,
   visageDe,
@@ -26,17 +25,24 @@ import { construireIcs, lienGoogleAgenda, nomFichierIcs, type EvenementAgenda } 
 import { CAPACITE_JAUGE } from "@/lib/data";
 import type { Enclos } from "@/lib/schema";
 import { cn } from "@/lib/utils";
-import type { EtatPush } from "@/components/enclos/use-push";
+import { ChoixRappel } from "@/components/enclos/choix-rappel";
+import { LIBELLE_ETAT, methodeAUtiliser, type MethodeRappel } from "@/lib/rappel";
 
-export interface PushCarte {
-  etat: EtatPush;
+export interface RappelCarte {
+  /* mode démo : aucun rappel réel n'est programmé */
+  demo: boolean;
+  /* méthode mémorisée, et méthodes utilisables sur cet appareil (la meilleure d'abord) */
+  methode: MethodeRappel | null;
+  methodes: readonly MethodeRappel[];
+  /* phrase simple expliquant pourquoi la notification sur le téléphone manque */
+  sansPush: string | null;
   enCours: boolean;
   note: string | null;
-  /* mode démo : aucune notification n'est planifiée */
-  demo: boolean;
-  onActiver: () => void;
-  onAnnuler: () => void;
-  /* l'autorisation de notifier est celle du navigateur : lue et expliquée une fois, dans le bandeau de la page */
+  onMethode: (m: MethodeRappel) => void;
+  /* planifie la notification push ; renvoie l'heure d'envoi, ou null si elle n'a pas pu être programmée */
+  onPush: () => Promise<number | null>;
+  onAnnulerPush: () => void;
+  /* l'autorisation de notifier est celle du navigateur : relue après chaque demande */
   onPermission: (p: Permission) => void;
 }
 
@@ -87,7 +93,7 @@ export function EnclosCard({
   onObjectif,
   onSave,
   onClear,
-  push,
+  rappel: reglageRappel,
 }: {
   enclos: Enclos;
   vue: VueEnclos;
@@ -97,11 +103,14 @@ export function EnclosCard({
   onObjectif: (o: Objectif) => void;
   onSave: (e: Enclos) => void;
   onClear: () => void;
-  push: PushCarte;
+  rappel: RappelCarte;
 }) {
   const nom = enclos.nom || `Enclos ${vue.index + 1}`;
   const [edition, setEdition] = useState(false);
-  const [rappelA, setRappelA] = useState<number | null>(null);
+  /* Dernier rappel programmé depuis cette carte (agenda, page) ou push ; le push survit au rechargement via `enclos.rappel`. */
+  const [fait, setFait] = useState<{ methode: MethodeRappel; at: number } | null>(null);
+  const [choixOuvert, setChoixOuvert] = useState(false);
+  const [annonce, setAnnonce] = useState("");
   const [confirmeVider, setConfirmeVider] = useState(false);
   const saisi = enclos.saisieLe !== null;
   const { retour, alerte, plan } = vue;
@@ -111,9 +120,10 @@ export function EnclosCard({
   const jaugeVidee = vue.jaugeVideMs !== null && vue.jaugeVideMs <= maintenantMs;
   const urgent = alerte !== null || (reste !== null && reste < 900);
 
-  /* Rappel local : setTimeout, perdu si l'onglet est fermé ou rechargé. */
+  /* Rappel « dans la page » : setTimeout, perdu si la page est fermée ou rechargée. */
+  const rappelPageA = fait?.methode === "page" ? fait.at : null;
   useEffect(() => {
-    if (rappelA === null) return;
+    if (rappelPageA === null) return;
     const id = setTimeout(
       () => {
         try {
@@ -122,25 +132,64 @@ export function EnclosCard({
         } catch {
           /* certains navigateurs mobiles exigent un service worker : on abandonne en silence */
         }
-        setRappelA(null);
+        setFait(null);
       },
-      Math.max(0, rappelA - Date.now()),
+      Math.max(0, rappelPageA - Date.now()),
     );
     return () => clearTimeout(id);
-  }, [rappelA, nom, vue.index]);
+  }, [rappelPageA, nom, vue.index]);
 
   const evt = evenementAgenda(enclos, vue, maintenantMs, margeMin);
+  const heureRappelMs = retour ? heureRappel(retour.quandMs, margeMin, maintenantMs) : 0;
+  const heure = formatHeure(heureRappelMs, maintenantMs);
 
-  const activerRappel = async () => {
-    if (!retour) return;
-    if (typeof Notification === "undefined") {
-      push.onPermission("indisponible");
-      return;
+  /* État affiché sous le bouton : le dernier rappel fait ici, sinon le push planifié (persisté), tant que l'heure n'est pas passée. */
+  const pushPrevu = !reglageRappel.demo && enclos.rappel !== null && enclos.rappel.at > maintenantMs;
+  const etat: { methode: MethodeRappel; at: number } | null =
+    fait && fait.at > maintenantMs ? fait : pushPrevu ? { methode: "push", at: enclos.rappel!.at } : null;
+
+  const programmer = async (m: MethodeRappel) => {
+    if (!retour || !evt) return;
+    const programme = (at: number) => {
+      setFait({ methode: m, at });
+      setAnnonce(`Rappel programmé à ${formatHeure(at, Date.now())}`);
+    };
+    if (m === "push") {
+      const at = await reglageRappel.onPush();
+      if (at !== null) programme(at);
+      else setAnnonce("");
+    } else if (m === "agenda") {
+      telecharger(nomFichierIcs(`retour-${nom}`), construireIcs(evt));
+      programme(heureRappelMs);
+    } else if (m === "google") {
+      window.open(lienGoogleAgenda(evt), "_blank", "noopener,noreferrer");
+      programme(heureRappelMs);
+    } else {
+      if (typeof Notification === "undefined") return reglageRappel.onPermission("indisponible");
+      let p: NotificationPermission = Notification.permission;
+      if (p === "default") p = await Notification.requestPermission();
+      reglageRappel.onPermission(p);
+      if (p === "granted") programme(heureRappel(retour.quandMs, margeMin, Date.now()));
     }
-    let p: NotificationPermission = Notification.permission;
-    if (p === "default") p = await Notification.requestPermission();
-    push.onPermission(p);
-    if (p === "granted") setRappelA(heureRappel(retour.quandMs, margeMin, Date.now()));
+  };
+
+  /* Un seul appui si la méthode mémorisée marche encore ici ; sinon (ou « changer ») le choix s'ouvre. */
+  const methodeMemorisee = methodeAUtiliser(reglageRappel.methode, reglageRappel.methodes);
+  const appuyer = () => {
+    if (reglageRappel.demo) return setAnnonce("Mode démo : aucun rappel réel n’est programmé. Quitte la démo pour en programmer un.");
+    if (methodeMemorisee === null) return setChoixOuvert(true);
+    void programmer(methodeMemorisee);
+  };
+  const confirmer = (m: MethodeRappel) => {
+    setChoixOuvert(false);
+    reglageRappel.onMethode(m);
+    void programmer(m);
+  };
+  const annulerRappel = () => {
+    setChoixOuvert(false);
+    if (pushPrevu) reglageRappel.onAnnulerPush();
+    setFait(null);
+    setAnnonce("Rappel annulé");
   };
 
   const serenites = plan.etat.serenites;
@@ -177,7 +226,8 @@ export function EnclosCard({
         <EnclosForm
           initial={brouillonDe(enclos, saisi ? plan.etat : undefined)}
           onSave={(e) => {
-            setRappelA(null);
+            setFait(null);
+            setAnnonce("");
             onSave(e);
             setEdition(false);
           }}
@@ -283,29 +333,56 @@ export function EnclosCard({
           </div>
 
           {evt && (
-            <div className="flex flex-col gap-2 border-t pt-3">
-              <p className="flex items-center gap-1.5 text-sm font-medium">
-                <BellRing className="size-4 text-primary" aria-hidden />
-                Rappel {libelleMarge(margeMin)} l&apos;heure de retour, soit à{" "}
-                {formatHeure(heureRappel(retour!.quandMs, margeMin, maintenantMs), maintenantMs)}
+            <div className="flex flex-col gap-2 border-t pt-3" data-testid="rappel">
+              <Button
+                size="lg"
+                className="h-11 w-full text-base"
+                onClick={appuyer}
+                aria-label={`Me rappeler à ${heure} pour l’enclos ${nom}`}
+              >
+                <BellRing aria-hidden /> Me rappeler à {heure}
+              </Button>
+              {etat ? (
+                <p className="flex flex-wrap items-center gap-x-1 text-sm" data-testid="etat-rappel">
+                  <span>
+                    Rappel : {LIBELLE_ETAT[etat.methode]}, à {formatHeure(etat.at, maintenantMs)} <span aria-hidden>✓</span>
+                  </span>
+                  <span aria-hidden>·</span>
+                  <BoutonChanger nom={nom} onClick={() => setChoixOuvert(true)} />
+                </p>
+              ) : (
+                methodeMemorisee !== null &&
+                !reglageRappel.demo && (
+                  <p className="flex flex-wrap items-center gap-x-1 text-sm text-muted-foreground" data-testid="methode-rappel">
+                    <span>Façon de te rappeler : {LIBELLE_ETAT[methodeMemorisee]}</span>
+                    <span aria-hidden>·</span>
+                    <BoutonChanger nom={nom} onClick={() => setChoixOuvert(true)} />
+                  </p>
+                )
+              )}
+              {reglageRappel.enCours && <p className="text-sm text-muted-foreground">Programmation du rappel…</p>}
+              {reglageRappel.note && <p className="text-sm text-warning">{reglageRappel.note}</p>}
+              {/* annonce vocale : la zone existe avant son contenu pour que le lecteur d'écran la lise ; en démo elle se voit aussi */}
+              <p
+                role="status"
+                aria-live="polite"
+                className={reglageRappel.demo && annonce ? "text-sm text-muted-foreground" : "sr-only"}
+                data-testid="annonce-rappel"
+              >
+                {annonce}
               </p>
-              <div className="flex flex-wrap gap-2">
-                <Button onClick={() => telecharger(nomFichierIcs(`retour-${nom}`), construireIcs(evt))}>
-                  <CalendarPlus aria-hidden /> Ajouter à mon agenda
-                </Button>
-                <a
-                  href={lienGoogleAgenda(evt)}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex h-8 items-center rounded-lg border border-border bg-background px-2.5 text-sm font-medium outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/20"
-                >
-                  Google Agenda
-                </a>
-                <Button variant="outline" onClick={activerRappel} disabled={rappelA !== null}>
-                  {rappelA !== null ? `Prévenu ici à ${formatHeure(rappelA, maintenantMs)}` : "Me prévenir dans cet onglet"}
-                </Button>
-              </div>
-              <BlocPush push={push} rappel={enclos.rappel} maintenantMs={maintenantMs} />
+              <ChoixRappel
+                open={choixOuvert}
+                onOpenChange={setChoixOuvert}
+                nom={nom}
+                heure={heure}
+                methodes={reglageRappel.methodes}
+                initiale={methodeMemorisee ?? reglageRappel.methodes[0] ?? "agenda"}
+                sansPush={reglageRappel.sansPush}
+                rappelActif={etat !== null}
+                onConfirmer={confirmer}
+                onAnnulerRappel={annulerRappel}
+              />
             </div>
           )}
 
@@ -344,44 +421,16 @@ export function EnclosCard({
   );
 }
 
-/* Notification push à l'heure de retour, même onglet fermé (#16), avec repli explicite sur l'agenda. */
-function BlocPush({
-  push,
-  rappel,
-  maintenantMs,
-}: {
-  push: PushCarte;
-  rappel: Enclos["rappel"];
-  maintenantMs: number;
-}) {
-  const { etat, enCours, note, demo } = push;
-  const prevu = !demo && rappel !== null && rappel.at > maintenantMs;
+/* « changer » : cible d'au moins 44 px, nom complet pour le lecteur d'écran. */
+function BoutonChanger({ nom, onClick }: { nom: string; onClick: () => void }) {
   return (
-    <div className="flex flex-col gap-1.5" data-testid="bloc-push">
-      {prevu ? (
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm font-medium" role="status">
-            Notification prévue à {formatHeure(rappel.at, maintenantMs)} sur ce téléphone
-          </p>
-          <Button size="sm" variant="ghost" onClick={push.onAnnuler}>
-            Annuler la notification
-          </Button>
-        </div>
-      ) : (
-        <Button
-          variant="secondary"
-          className="self-start"
-          onClick={push.onActiver}
-          disabled={demo || etat.statut !== "pret" || enCours}
-        >
-          {enCours ? "Planification…" : "Recevoir une notification sur ce téléphone"}
-        </Button>
-      )}
-      {note && (
-        <p className="text-xs text-warning" role="status">
-          {note}
-        </p>
-      )}
-    </div>
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={`Changer la façon d’être rappelé pour l’enclos ${nom}`}
+      className="inline-flex min-h-11 items-center rounded-md px-2 text-primary underline underline-offset-4 outline-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50"
+    >
+      changer
+    </button>
   );
 }

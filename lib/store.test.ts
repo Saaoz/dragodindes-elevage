@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fixture from "./__fixtures__/export-v2.json";
 import { defaultAppData, type PriceKey } from "./schema";
 import {
-  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateOptimakina, migrateRappels, migrateV1, parseExport, syncOnglets,
+  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateMethodeRappel, migrateOptimakina, migrateRappels, migrateV1, parseExport, syncOnglets,
   parsePaste, priceValues, resetDemo, useDemoStore, useStore,
 } from "./store";
 
@@ -602,7 +602,7 @@ describe("refonte (#4) : objectif par enclos, marge des rappels, démo", () => {
     expect(st().reglages.margeRappelMin).toBe(15);
     expect(st().importJSON(fixtureText).ok).toBe(true);
     expect(st().reglages.margeRappelMin).toBe(15);
-    expect(JSON.parse(st().exportJSON()).data.reglages).toEqual({ margeRappelMin: 15 });
+    expect(JSON.parse(st().exportJSON()).data.reglages).toEqual({ margeRappelMin: 15, methodeRappel: null });
   });
 
   it("setEnclos : remplace l'enclos, remet le rappel à null, refuse un indice invalide", () => {
@@ -631,8 +631,8 @@ describe("version 6 (#38) : onglets et anciennes versions", () => {
     return enclos;
   };
 
-  it("la version de stockage est 6", () => {
-    expect(STORAGE_VERSION).toBe(6);
+  it("la version de stockage est au moins 6", () => {
+    expect(STORAGE_VERSION).toBeGreaterThanOrEqual(6);
   });
 
   it("migration v5 → v6 : données inchangées, objectif et marge par défaut, réécrit en v6", async () => {
@@ -645,7 +645,7 @@ describe("version 6 (#38) : onglets et anciennes versions", () => {
     expect(st().enclos[4].objectif).toBe(defaultAppData().enclos[4].objectif);
     expect(st().reglages).toEqual(defaultAppData().reglages);
     expect(st().prices.Imagiro).toEqual(fixPrices.Imagiro);
-    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(6);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(STORAGE_VERSION);
   });
 
   it("une version plus ancienne (v5) voit les données v6 comme futures : lecture seule, rien écrit", async () => {
@@ -688,5 +688,62 @@ describe("version 6 (#38) : onglets et anciennes versions", () => {
     cible.dispatchEvent(evt(STORAGE_KEY));
     await Promise.resolve();
     expect(st().server).toBe("Orukam");
+  });
+});
+
+describe("version 7 (#51) : méthode de rappel mémorisée", () => {
+  it("la version de stockage est 7", () => {
+    expect(STORAGE_VERSION).toBe(7);
+  });
+
+  it("migration v6 → v7 : données gardées, méthode null, réécrit en v7", async () => {
+    const enclos = defaultAppData().enclos;
+    enclos[2] = { ...enclos[2], nom: "Trois", saisieLe: 9 };
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 6, state: { ...fixture.data, enclos, reglages: { margeRappelMin: 15 } } }));
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(false);
+    expect(st().reglages).toEqual({ margeRappelMin: 15, methodeRappel: null });
+    expect(st().enclos[2].nom).toBe("Trois");
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(7);
+  });
+
+  it("migrateMethodeRappel : absent ou illisible vaut null, valide gardé, idempotent, argument intact", () => {
+    const sans = { reglages: { margeRappelMin: 5 } };
+    expect(migrateMethodeRappel(sans).reglages).toEqual({ margeRappelMin: 5, methodeRappel: null });
+    expect(sans.reglages).toEqual({ margeRappelMin: 5 });
+    expect(migrateMethodeRappel({ reglages: { margeRappelMin: 5, methodeRappel: "bip" } }).reglages.methodeRappel).toBeNull();
+    const bon = { reglages: { margeRappelMin: 5, methodeRappel: "push" } };
+    expect(migrateMethodeRappel(migrateMethodeRappel(bon))).toEqual(bon);
+  });
+
+  it("setMethodeRappel : mémorisée, persistée, rechargée ; valeur invalide refusée", async () => {
+    expect(st().reglages.methodeRappel).toBeNull();
+    expect(st().setMethodeRappel("agenda")).toBe(true);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).state.reglages.methodeRappel).toBe("agenda");
+    expect(st().setMethodeRappel("bip" as never)).toBe(false);
+    expect(st().reglages.methodeRappel).toBe("agenda");
+    await useStore.persist.rehydrate();
+    expect(st().reglages.methodeRappel).toBe("agenda");
+    expect(st().setMethodeRappel(null)).toBe(true);
+    expect(st().reglages.methodeRappel).toBeNull();
+  });
+
+  it("une méthode illisible sur le disque retombe sur null sans perdre le reste", async () => {
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 7, state: { ...fixture.data, reglages: { margeRappelMin: 30, methodeRappel: "x" } } }));
+    await useStore.persist.rehydrate();
+    expect(st().reglages).toEqual({ margeRappelMin: 30, methodeRappel: null });
+  });
+
+  it("version plus récente : la méthode ne s'écrit pas (lecture seule)", async () => {
+    const brut = JSON.stringify({ version: STORAGE_VERSION + 1, state: fixture.data });
+    mem.setItem(STORAGE_KEY, brut);
+    await useStore.persist.rehydrate();
+    st().setMethodeRappel("push");
+    expect(mem.getItem(STORAGE_KEY)).toBe(brut);
+  });
+
+  it("l'export contient la méthode", () => {
+    st().setMethodeRappel("google");
+    expect(JSON.parse(st().exportJSON()).data.reglages).toEqual({ margeRappelMin: 5, methodeRappel: "google" });
   });
 });

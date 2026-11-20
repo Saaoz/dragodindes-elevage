@@ -14,7 +14,7 @@ Navigation : barre en bas sur mobile, en haut sur bureau (refonte #4).
 | Écran | Rôle |
 |---|---|
 | **Accueil** (`/`) | tableau de bord : enclos les plus urgents (heure de retour), bonus Almanax du mois, raccourcis |
-| **Enclos** (`/enclos`) | heure de retour par enclos, objectif enregistré, marge de rappel réglable, rappels agenda (.ics, Google) et push |
+| **Enclos** (`/enclos`) | heure de retour par enclos, objectif enregistré, marge de rappel réglable, **un seul bouton « Me rappeler à HH:MM »** par enclos (notification push, agenda .ics ou Google Agenda, ou notification dans la page ; la méthode choisie est mémorisée) |
 | **Rentabilité** (`/rentabilite`) | onglets *Simuler* (mode simple : génération cible + prix nécessaires → verdict ; mode avancé replié), *Mes prix* (prix HDV datés par serveur, collage, export/import JSON) et *Comparer* (heatmap serveurs × génération, graphique) |
 | **Guide** (`/guide`) | contenu de référence en sections repliables : capture, reproduction, jauges et tiers 3.7, Makinas, croisements avec recherche de couleur, outil XP, Almanax, serveurs, sources et doutes |
 
@@ -84,7 +84,7 @@ service worker ◀── push (VAPID) ── POST /api/reminders/fire ◀── 
 - Le `messageId` QStash est gardé par enclos dans le store local (`rappel`) : ressaisir ou vider l'enclos annule
   l'ancien message (`DELETE /api/reminders/:id`, seulement avec la même subscription) et en planifie un nouveau.
 - Repli : si le push est indisponible (variables absentes, permission refusée, navigateur trop ancien, iPhone sans
-  l'appli installée sur l'écran d'accueil — iOS 16.4+), la carte l'explique et propose « Ajouter à mon agenda ».
+  l'appli installée sur l'écran d'accueil — iOS 16.4+), le choix du bouton « Me rappeler à HH:MM » n'affiche alors que les méthodes disponibles (agenda…) et explique en une phrase pourquoi la notification manque (sauf si le serveur n'est pas configuré).
 - Limites : rappel dans le futur et à moins de 7 jours ; 30 rappels par heure et par appareil (en mémoire, par instance).
 
 ### Variables d'environnement

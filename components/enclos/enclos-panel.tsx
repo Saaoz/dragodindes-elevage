@@ -10,7 +10,8 @@ import { Choix } from "@/components/commun/choix";
 import { EnTete, Page } from "@/components/commun/en-tete";
 import { formatCompteARebours, trierParUrgence, vueEnclos, type Objectif } from "@/lib/enclos";
 import { enclosSchema, MARGES_RAPPEL_MIN, NB_ENCLOS, type Enclos } from "@/lib/schema";
-import { annulerApi, enJson, MESSAGES_INDISPO, planifierApi } from "@/lib/push/client";
+import { annulerApi, enJson, planifierApi } from "@/lib/push/client";
+import { methodesDisponibles, phraseSansPush, type CapacitePush, type MethodeRappel } from "@/lib/rappel";
 import { contenuRappel } from "@/lib/push/rappel-enclos";
 
 const TITRE = "Mes enclos";
@@ -21,6 +22,7 @@ export function EnclosPanel() {
   const [maintenant, setMaintenant] = useState(() => Date.now());
   const enclos = useApp((s) => s.enclos);
   const margeMin = useApp((s) => s.reglages.margeRappelMin);
+  const methode = useApp((s) => s.reglages.methodeRappel);
   const push = usePush();
   const [permission, setPermission] = useState<Permission>("default");
   useEffect(() => {
@@ -79,22 +81,37 @@ export function EnclosPanel() {
   const planifierRappel = useCallback(
     async (i: number, e: Enclos, objectif: Objectif, sub: PushSubscription | null = push.subscription) => {
       const magasin = magasinActif().getState();
-      if (!sub || magasin.demo || magasin.futureVersion) return;
+      if (!sub || magasin.demo || magasin.futureVersion) return null;
       const c = contenuRappel(e, i, objectif, Date.now(), magasin.reglages.margeRappelMin * 60);
-      if (!c.ok) return noter(i, c.raison);
+      if (!c.ok) {
+        noter(i, c.raison);
+        return null;
+      }
       occuper(i, true);
       const r = await planifierApi({ subscription: enJson(sub), at: c.at, titre: c.titre, corps: c.corps, url: c.url, enclos: i });
       occuper(i, false);
-      if (!r.ok) return noter(i, `Notification non planifiée : ${r.erreur}`);
+      if (!r.ok) {
+        noter(i, `Notification non planifiée : ${r.erreur}`);
+        return null;
+      }
       /* Ressaisi pendant l'appel (ou passage en démo) : ce rappel est déjà périmé, on l'annule. */
-      if (magasinActif().getState().demo || !magasinActif().getState().setRappel(i, e.saisieLe, { messageId: r.data.messageId, at: r.data.at }))
-        return void annulerApi(r.data.messageId, sub.endpoint);
+      if (magasinActif().getState().demo || !magasinActif().getState().setRappel(i, e.saisieLe, { messageId: r.data.messageId, at: r.data.at })) {
+        void annulerApi(r.data.messageId, sub.endpoint);
+        return null;
+      }
       noter(i, null);
+      return r.data.at;
     },
     [push.subscription],
   );
 
-  const pushActif = !demo && push.etat.statut === "pret" && push.etat.abonne;
+  /* Le push se replanifie tout seul à la ressaisie seulement si c'est la méthode choisie sur cet appareil. */
+  const capPush: CapacitePush =
+    push.etat.statut === "pret" ? "pret" : push.etat.statut === "chargement" ? "chargement" : { indisponible: push.etat.raison };
+  const methodes = methodesDisponibles({ push: capPush, notificationPage: permission !== "indisponible" && permission !== "denied" });
+  const sansPush = phraseSansPush(capPush);
+
+  const pushActif = !demo && methode === "push" && push.etat.statut === "pret" && push.etat.abonne;
 
   /* Replanifie un rappel déjà posé (objectif ou marge changés : l'heure d'envoi change). */
   const replanifier = (i: number) => {
@@ -132,7 +149,12 @@ export function EnclosPanel() {
   const activerPush = async (i: number) => {
     const sub = push.subscription ?? (await push.activer());
     const e = magasinActif().getState().enclos[i];
-    if (sub) await planifierRappel(i, e, e.objectif, sub);
+    return sub ? planifierRappel(i, e, e.objectif, sub) : null;
+  };
+  /* Choisir une autre méthode que le push annule la notification déjà planifiée pour cet enclos. */
+  const choisirMethode = (i: number, m: MethodeRappel) => {
+    magasinActif().getState().setMethodeRappel(m);
+    if (m !== "push" && enclos[i].rappel) annulerPush(i);
   };
   const annulerPush = (i: number) => {
     const e = enclos[i];
@@ -146,42 +168,19 @@ export function EnclosPanel() {
         heure revenir. Le plus urgent est en haut.
       </EnTete>
 
-      <div className="flex flex-col gap-2 rounded-xl border bg-card p-3 text-sm">
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <span className="flex items-center gap-1.5 font-medium">
-            <BellRing className="size-4 text-primary" aria-hidden />
-            Me prévenir
-          </span>
-          <Choix
-            label="Marge des rappels avant l'heure de retour"
-            taille="sm"
-            valeur={margeMin}
-            onChange={changerMarge}
-            options={MARGES_RAPPEL_MIN.map((m) => ({ valeur: m, label: m === 0 ? "à l’heure" : `${m} min` }))}
-          />
-          <span className="text-muted-foreground">avant l&apos;heure de retour (agenda et notifications).</span>
-        </div>
-        <div className="flex flex-col gap-1 text-xs text-muted-foreground" data-testid="aide-notifications">
-          <p>
-            « Me prévenir dans cet onglet » : seulement tant que l&apos;onglet reste ouvert (perdu au rechargement).
-            {permission === "denied" && " Notifications bloquées par ton navigateur."}
-            {permission === "indisponible" && " Les notifications ne sont pas disponibles sur ce navigateur."}
-          </p>
-          {demo ? (
-            <p>Pas de notification en mode démo.</p>
-          ) : push.etat.statut === "indisponible" ? (
-            <p className="text-warning">
-              {MESSAGES_INDISPO[push.etat.raison]} Utilise plutôt « Ajouter à mon agenda » : l&apos;alarme de ton agenda
-              sonnera à l&apos;heure.
-            </p>
-          ) : push.etat.statut === "pret" ? (
-            <p>
-              {push.etat.abonne
-                ? "Notifications activées sur cet appareil : chaque saisie planifie automatiquement son rappel."
-                : "« Recevoir une notification sur ce téléphone » : tu seras prévenu à l’heure du rappel, même onglet fermé ou téléphone en poche."}
-            </p>
-          ) : null}
-        </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border bg-card p-3 text-sm">
+        <span className="flex items-center gap-1.5 font-medium">
+          <BellRing className="size-4 text-primary" aria-hidden />
+          Me prévenir
+        </span>
+        <Choix
+          label="Marge des rappels avant l'heure de retour"
+          taille="sm"
+          valeur={margeMin}
+          onChange={changerMarge}
+          options={MARGES_RAPPEL_MIN.map((m) => ({ valeur: m, label: m === 0 ? "à l’heure" : `${m} min` }))}
+        />
+        <span className="text-muted-foreground">avant l&apos;heure de retour.</span>
       </div>
 
       {!pret ? (
@@ -197,13 +196,16 @@ export function EnclosPanel() {
               premier={rang === 0}
               margeMin={margeMin}
               onObjectif={(o) => changerObjectif(v.index, o)}
-              push={{
-                etat: push.etat,
+              rappel={{
+                demo,
+                methode,
+                methodes,
+                sansPush,
                 enCours: enCours[v.index] ?? false,
                 note: notes[v.index] ?? null,
-                demo,
-                onActiver: () => void activerPush(v.index),
-                onAnnuler: () => annulerPush(v.index),
+                onMethode: (m) => choisirMethode(v.index, m),
+                onPush: () => activerPush(v.index),
+                onAnnulerPush: () => annulerPush(v.index),
                 onPermission: setPermission,
               }}
               onSave={(e) => sauver(v.index, e)}

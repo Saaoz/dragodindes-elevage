@@ -117,6 +117,11 @@ export const defaultEnclos = (): Enclos[] =>
   Array.from({ length: NB_ENCLOS }, (_, i) => enclosSchema.parse({ nom: `Enclos ${i + 1}` }));
 
 /* ---------- réglages de l'appli (#4) ---------- */
+/* Façon de se faire rappeler (#51), mémorisée une fois choisie : notification push sur ce téléphone,
+   fichier d'agenda (.ics), Google Agenda, ou notification dans la page tant qu'elle reste ouverte. */
+export const METHODES_RAPPEL = ["push", "agenda", "google", "page"] as const;
+export type MethodeRappel = (typeof METHODES_RAPPEL)[number];
+
 export const reglagesSchema = z.object({
   /* minutes de marge des rappels ; une valeur hors liste (ancienne / corrompue) retombe sur 5 */
   margeRappelMin: z
@@ -124,6 +129,8 @@ export const reglagesSchema = z.object({
     .int()
     .refine((n) => (MARGES_RAPPEL_MIN as readonly number[]).includes(n))
     .catch(MARGE_RAPPEL_DEFAUT_MIN),
+  /* méthode de rappel mémorisée ; absente ou illisible : null (le choix est reproposé) */
+  methodeRappel: z.enum(METHODES_RAPPEL).nullable().catch(null),
 });
 export type Reglages = z.infer<typeof reglagesSchema>;
 
@@ -135,7 +142,7 @@ export const appDataSchema = z.object({
   calc: calcSchema.prefault({}),
   prices: pricesSchema.prefault({}),
   enclos: z.array(enclosSchema).length(NB_ENCLOS).prefault(defaultEnclos()),
-  reglages: reglagesSchema.prefault({ margeRappelMin: MARGE_RAPPEL_DEFAUT_MIN }),
+  reglages: reglagesSchema.prefault({ margeRappelMin: MARGE_RAPPEL_DEFAUT_MIN, methodeRappel: null }),
 });
 export type AppData = z.infer<typeof appDataSchema>;
 export const defaultAppData = (): AppData => appDataSchema.parse({});
