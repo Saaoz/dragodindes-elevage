@@ -37,7 +37,11 @@ test("saisie d'un enclos : alerte ±5 000, heure de retour, persistance, agenda
   expect(contenu).toContain("BEGIN:VEVENT");
   expect(contenu).toContain("BEGIN:VALARM");
   /* rappel 5 min avant le retour (21 h 33 min 20 s, heure locale) */
-  expect(contenu).toContain(`DTSTART:${new Date(2026, 10, 20, 21, 28, 20).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z")}`);
+  /* tolérance ±2 s : l'horloge du test avance en temps réel pendant la saisie (figer l'horloge casse le titre de l'onglet) */
+  const dtstart = /DTSTART:(\d{8}T\d{6}Z)/.exec(contenu)?.[1];
+  expect(dtstart, "DTSTART absent du .ics").toBeDefined();
+  const dtstartMs = Date.parse(dtstart!.replace(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/, "$1-$2-$3T$4:$5:$6Z"));
+  expect(Math.abs(dtstartMs - new Date(2026, 10, 20, 21, 28, 20).getTime())).toBeLessThanOrEqual(2000);
 
   await expect(carte2.getByRole("link", { name: "Google Agenda" })).toHaveAttribute("href", /calendar\.google\.com/);
   await expect(page).toHaveTitle(/·.*Enclos 1/);
