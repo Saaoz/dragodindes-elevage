@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   brouillonDe,
   alerteSurRetour,
+  changerAutreJauge,
+  objectifParDefaut,
+  OPTIONS_OBJECTIF,
+  texteAlerteJauge,
+  ZONES,
   CONSEIL_RETARD,
   enclosUrgents,
   estUrgent,
@@ -23,7 +28,8 @@ import {
   vueEnclos,
 } from "@/lib/enclos";
 import { defaultEnclos, enclosSchema } from "@/lib/schema";
-import { pointsConsommes } from "@/lib/serenity";
+import { deplacer, pointsConsommes, ZONE_AMOUR, ZONE_ENDURANCE } from "@/lib/serenity";
+import { demoData } from "@/lib/store";
 
 const T0 = new Date(2026, 10, 20, 21, 0, 0).getTime();
 /* Les espaces insécables (#32) ne changent pas le texte : on les ramène à des espaces pour comparer. */
@@ -67,7 +73,7 @@ describe("parseNombre", () => {
 });
 
 describe("enclosDeBrouillon", () => {
-  const base = { nom: " Mon enclos ", serenites: ["-3000", ""], sens: "+" as const, niveau: "200k", autre: null, niveauAutre: "" };
+  const base = { nom: " Mon enclos ", serenites: ["-3000", ""], sens: "+" as const, niveau: "200k", autre: null, niveauAutre: "", objectif: "aucun" as const };
   it("convertit et horodate", () => {
     const r = enclosDeBrouillon(base, T0);
     expect(r.ok).toBe(true);
@@ -534,5 +540,203 @@ describe("carte allégée (#57)", () => {
       expect(v.conseil ?? "").not.toMatch(/objectif/);
     }
     expect(vueEnclos(enclosTest([0], 0, null), 0, T0).conseil).toBeNull();
+  });
+});
+describe("objectifs Endurance et Amour (#63)", () => {
+  const avec = (serenites: number[], sens: "+" | "-" | null, niveau: number, extra: Record<string, unknown> = {}) =>
+    enclosSchema.parse({
+      nom: "Test",
+      montures: serenites.map((serenite) => ({ serenite })),
+      jaugeSerenite: sens,
+      niveauSerenite: niveau,
+      saisieLe: T0,
+      ...extra,
+    });
+  /* « mets N points » du conseil */
+  const pointsDuConseil = (conseil: string) => Number(/mets ([\d ]+) points/.exec(conseil)![1].replace(/\D/g, ""));
+
+  it("quatre objectifs, chacun avec sa zone", () => {
+    expect(OPTIONS_OBJECTIF.map((o) => o.valeur)).toEqual(["aucun", "maturite", "endurance", "amour"]);
+    expect(ss(OPTIONS_OBJECTIF.map((o) => o.label).join(" / "))).toBe(
+      "Éviter ±5 000 / Rester en Maturité / Rester en Endurance / Rester en Amour",
+    );
+    expect(ZONES.endurance).toBe(ZONE_ENDURANCE);
+    expect(ZONES.amour).toBe(ZONE_AMOUR);
+  });
+
+  it("issue : −4 200 / −3 800 / −3 000 en Sérénité −, objectif Endurance : le conseil ne fait passer aucune monture à ≥ 0", () => {
+    const e = avec([-4200, -3800, -3000], "-", 60000, { autreJauge: "Endurance", niveauAutre: 200000, objectif: "endurance" });
+    const v = vueEnclos(e, 0, T0);
+    expect(v.retour?.evenement.type).toBe("premiereBorne");
+    expect(ss(v.conseil!)).toMatch(
+      /^À ton retour : passe sur la jauge Sérénité \+ et mets 1 900 points au total pour recentrer tes montures dans la zone Endurance \(sérénité négative\)\./,
+    );
+    const auRetour = [-4200, -3800, -3000].map((s) => deplacer(s, "-", v.retour!.evenement.points));
+    for (const s of auRetour) expect(deplacer(s, "+", pointsDuConseil(ss(v.conseil!)))).toBeLessThan(0);
+    /* les sérénités restent négatives : l'Endurance monte, pas d'alerte de jauge */
+    expect(v.alerteJauge).toBeNull();
+  });
+
+  it("issue : +3 000 / +4 200 / +4 900 en Sérénité +, objectif Amour : le conseil ne fait passer aucune monture sous 0", () => {
+    const e = avec([3000, 4200, 4900], "+", 200000, { autreJauge: "Amour", niveauAutre: 90000, objectif: "amour" });
+    const v = vueEnclos(e, 0, T0);
+    expect(ss(v.conseil!)).toMatch(/passe sur la jauge Sérénité − et mets 1 550 points au total pour recentrer tes montures dans la zone Amour/);
+    const auRetour = [3000, 4200, 4900].map((s) => deplacer(s, "+", v.retour!.evenement.points));
+    for (const s of auRetour) expect(deplacer(s, "-", pointsDuConseil(ss(v.conseil!)))).toBeGreaterThanOrEqual(0);
+  });
+
+  it("heure de retour : Endurance en Sérénité + = sortie de la zone Endurance, avant que la sérénité devienne positive", () => {
+    const v = vueEnclos(avec([-3000, -1200], "+", 60000, { objectif: "endurance" }), 0, T0);
+    expect(v.retour?.evenement).toMatchObject({ type: "sortieZone", points: 1199 });
+    expect(v.objectif).toBe("endurance");
+    expect(raisonRetour(v, T0)).toBe("une monture sort de la zone Endurance (sérénité négative)");
+    const tard = v.retour!.quandMs + 60_000;
+    expect(ss(raisonRetour(vueEnclos(avec([-3000, -1200], "+", 60000, { objectif: "endurance" }), 0, tard), tard)!)).toBe("la monture 2 est sortie de la zone Endurance (sérénité négative) à 21 h 19");
+    const amour = vueEnclos(avec([3000, 500], "-", 60000, { objectif: "amour" }), 0, T0);
+    expect(raisonRetour(amour, T0)).toBe("une monture sort de la zone Amour (sérénité positive)");
+    /* Maturité inchangé */
+    expect(raisonRetour(vueEnclos(avec([1500], "+", 200000), 0, T0, "maturite"), T0)).toBe("une monture sort de la zone Maturité");
+  });
+});
+
+describe("objectif proposé à la saisie selon l'autre jauge (#63)", () => {
+  const brouillon = { nom: "", serenites: ["-3000"], sens: "-" as const, niveau: "60000", autre: null, niveauAutre: "", objectif: "aucun" as const };
+
+  it("objectifParDefaut : Endurance, Amour, Maturité ; sinon l'objectif actuel", () => {
+    expect(objectifParDefaut("Endurance", "aucun")).toBe("endurance");
+    expect(objectifParDefaut("Amour", "maturite")).toBe("amour");
+    expect(objectifParDefaut("Maturité", "endurance")).toBe("maturite");
+    expect(objectifParDefaut("Expérience de monture", "amour")).toBe("amour");
+    expect(objectifParDefaut(null, "maturite")).toBe("maturite");
+  });
+
+  it("choisir l'autre jauge propose son objectif, sauf si le joueur a déjà choisi l'objectif dans cette saisie", () => {
+    const b = changerAutreJauge(brouillon, "Endurance", false);
+    expect(b).toMatchObject({ autre: "Endurance", objectif: "endurance" });
+    expect(changerAutreJauge(b, "Amour", false).objectif).toBe("amour");
+    expect(changerAutreJauge(b, "Expérience de monture", false).objectif).toBe("endurance");
+    expect(changerAutreJauge({ ...b, objectif: "aucun" }, "Maturité", true).objectif).toBe("aucun");
+    /* l'objectif de la saisie est celui enregistré */
+    const r = enclosDeBrouillon({ ...b, niveauAutre: "100k" }, T0);
+    expect(r.ok && r.enclos.objectif).toBe("endurance");
+  });
+
+  it("brouillonDe : un objectif « Éviter ±5 000 » est remplacé par celui de l'autre jauge, un autre choix est gardé", () => {
+    const e = (autreJauge: string | null, objectif: string) =>
+      enclosSchema.parse({ nom: "x", montures: [{ serenite: -3000 }], autreJauge, niveauAutre: 1000, saisieLe: T0, objectif });
+    expect(brouillonDe(e("Endurance", "aucun")).objectif).toBe("endurance");
+    expect(brouillonDe(e("Maturité", "aucun")).objectif).toBe("maturite");
+    expect(brouillonDe(e("Endurance", "maturite")).objectif).toBe("maturite");
+    expect(brouillonDe(e("Expérience de monture", "aucun")).objectif).toBe("aucun");
+    expect(brouillonDe(e(null, "amour")).objectif).toBe("amour");
+  });
+
+  it("issue : jauge Maturité saisie avec « Éviter ±5 000 » : la saisie suivante propose Maturité, le retour avance à la sortie de zone", () => {
+    const e = enclosSchema.parse({
+      nom: "Maturité A", montures: [{ serenite: 1000 }], jaugeSerenite: "+", niveauSerenite: 150000,
+      autreJauge: "Maturité", niveauAutre: 150000, saisieLe: T0,
+    });
+    const avant = vueEnclos(e, 0, T0);
+    const r = enclosDeBrouillon(brouillonDe(e), T0);
+    if (!r.ok) throw new Error("attendu ok");
+    expect(r.enclos.objectif).toBe("maturite");
+    const apres = vueEnclos(r.enclos, 0, T0);
+    expect(apres.retour?.evenement.type).toBe("sortieZone");
+    expect(apres.retour!.quandMs).toBeLessThan(avant.retour!.quandMs);
+  });
+});
+
+describe("alerte : Endurance / Amour / Maturité qui ne monte plus (#63)", () => {
+  const enclos = (serenites: number[], sens: "+" | "-" | null, niveau: number, autreJauge: string, niveauAutre = 200000) =>
+    enclosSchema.parse({
+      nom: "A",
+      montures: serenites.map((serenite) => ({ serenite })),
+      jaugeSerenite: sens,
+      niveauSerenite: niveau,
+      autreJauge,
+      niveauAutre,
+      saisieLe: T0,
+    });
+  const texte = (v: ReturnType<typeof vueEnclos>, t = T0) => ss(texteAlerteJauge(v.alerteJauge!, t));
+
+  it("ancienne démo : Endurance avec Sérénité +, montures poussées en positif : alerte datée, puis au présent", () => {
+    const e = enclos([-3200, -2900, -2600, -2400], "+", 150000, "Endurance", 90000);
+    const v = vueEnclos(e, 0, T0);
+    expect(v.alerteJauge).toMatchObject({ jauge: "Endurance", deja: false, montures: [3], suivantes: [0, 1, 2] });
+    expect(texte(v)).toBe(
+      "À partir de 21 h 13, l’Endurance ne montera plus pour la monture 4 : sa sérénité ne sera plus négative (l’Endurance ne monte qu’en sérénité négative). Les montures 1, 2 et 3 suivront.",
+    );
+    const t = T0 + 60 * 60_000;
+    const apres = vueEnclos(e, 0, t);
+    expect(apres.alerteJauge).toMatchObject({ deja: true, montures: [0, 1, 2, 3] });
+    expect(texte(apres, t)).toMatch(/^L’Endurance ne monte plus pour aucune de tes montures depuis 21 h 17 : leur sérénité n’est pas négative/);
+  });
+
+  it("ancienne démo : Amour avec des montures déjà négatives, sans mouvement : alerte au présent, sans heure", () => {
+    const v = vueEnclos(enclos([-5000, -3900], null, 0, "Amour", 120000), 0, T0);
+    expect(v.alerteJauge).toMatchObject({ jauge: "Amour", deja: true, montures: [0, 1], quandMs: null, revientMs: null });
+    expect(texte(v)).toBe(
+      "L’Amour ne monte pour aucune de tes montures en ce moment : leur sérénité est négative (l’Amour ne monte qu’en sérénité positive, 0 compris).",
+    );
+    expect(texte(vueEnclos(enclos([-500, 100], null, 0, "Amour"), 0, T0))).toBe(
+      "L’Amour ne monte pas pour la monture 1 en ce moment : sa sérénité est négative (l’Amour ne monte qu’en sérénité positive, 0 compris).",
+    );
+  });
+
+  it("montures négatives remontées par Sérénité + : l'Amour reprendra, avec l'heure", () => {
+    const v = vueEnclos(enclos([-500, -100], "+", 60000, "Amour"), 0, T0);
+    expect(v.alerteJauge).toMatchObject({ deja: true, montures: [0, 1] });
+    expect(texte(v)).toMatch(/L’Amour reprendra vers 21 h 08\.$/);
+  });
+
+  it("même heure que le retour (objectif Amour) : l'heure n'est pas répétée", () => {
+    const e = { ...enclos([3400, 2900, 2500], "-", 60000, "Amour", 120000), objectif: "amour" as const };
+    const v = vueEnclos(e, 0, T0);
+    expect(v.retour?.evenement.type).toBe("sortieZone");
+    expect(v.alerteJauge).toMatchObject({ surRetour: true, quandMs: v.retour!.quandMs, montures: [2], suivantes: [0, 1] });
+    expect(texte(v)).toMatch(/^À l’heure de retour, l’Amour ne montera plus pour la monture 3 : sa sérénité deviendra négative/);
+    expect(texte(v)).not.toMatch(/\d\d h \d\d/);
+  });
+
+  it("Maturité : sortie de −2 000 à +2 000 signalée", () => {
+    expect(texte(vueEnclos(enclos([1500], "+", 60000, "Maturité"), 0, T0))).toBe(
+      "À partir de 21 h 08, la Maturité ne montera plus pour la monture 1 : sa sérénité sortira de −2 000 à +2 000 (la Maturité ne monte qu’entre −2 000 et +2 000).",
+    );
+  });
+
+  it("pas d'alerte : montures dans la plage jusqu'au bout, jauge vide avant, XP, jauge vide, pas de saisie", () => {
+    expect(vueEnclos(enclos([-3000, -2000], "-", 60000, "Endurance"), 0, T0).alerteJauge).toBeNull();
+    /* la jauge Endurance (1 000 points ≈ 17 min) est vide avant que la monture passe en positif (≈ 33 min) */
+    expect(vueEnclos(enclos([-2000], "+", 60000, "Endurance", 1000), 0, T0).alerteJauge).toBeNull();
+    expect(vueEnclos(enclos([-2000], "+", 60000, "Expérience de monture"), 0, T0).alerteJauge).toBeNull();
+    expect(vueEnclos(enclos([2000], null, 0, "Endurance", 0), 0, T0).alerteJauge).toBeNull();
+    expect(vueEnclos(enclos([2000], null, 0, "Endurance", 1000), 0, T0 + 3 * 3600_000).alerteJauge).toBeNull();
+    expect(vueEnclos({ ...enclos([2000], null, 0, "Endurance"), saisieLe: null }, 0, T0).alerteJauge).toBeNull();
+  });
+
+  it("l'alerte parle de temps perdu, jamais de carburant ni de note de développeur", () => {
+    const v = vueEnclos(enclos([-3200, -2400], "+", 150000, "Endurance", 90000), 0, T0);
+    expect(texte(v)).not.toMatch(/carburant|gaspill|vérifier/);
+  });
+});
+
+describe("enclos de démo cohérents (#63)", () => {
+  const vues = demoData(T0).enclos.slice(0, 3).map((e, i) => ({ e, v: vueEnclos(e, i, T0) }));
+
+  it("chaque jauge d'élevage a l'objectif de sa plage", () => {
+    expect(vues.map(({ e }) => [e.autreJauge, e.objectif])).toEqual([
+      ["Endurance", "endurance"],
+      ["Amour", "amour"],
+      ["Maturité", "maturite"],
+    ]);
+  });
+
+  it("Endurance et Maturité : la jauge monte jusqu'au bout ; Amour : l'alerte montre une monture qui va passer en négatif", () => {
+    expect(vues[0].v.alerteJauge).toBeNull();
+    expect(vues[0].v.retour).not.toBeNull();
+    expect(vues[0].v.plan.etat.serenites.every((s) => s < 0)).toBe(true);
+    expect(vues[1].v.alerteJauge).toMatchObject({ jauge: "Amour", deja: false, surRetour: true });
+    expect(vues[1].v.plan.etat.serenites.every((s) => s >= 0)).toBe(true);
+    expect(vues[2].v.alerteJauge).toBeNull();
   });
 });

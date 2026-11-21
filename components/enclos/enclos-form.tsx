@@ -9,9 +9,11 @@ import { VisageIcone } from "@/components/commun/visage";
 import { IconeJauge } from "@/components/enclos/icone-jauge";
 import { CAPACITE_JAUGE } from "@/lib/data";
 import {
+  changerAutreJauge,
   enclosDeBrouillon,
   formatSerenite,
   MAX_MONTURES,
+  OPTIONS_OBJECTIF,
   parseNombre,
   VISAGES,
   type Brouillon,
@@ -46,6 +48,8 @@ export function EnclosForm({
 }) {
   const [b, setB] = useState<Brouillon>(initial);
   const [erreurs, setErreurs] = useState<string[]>([]);
+  /* objectif choisi à la main dans cette saisie : changer l'autre jauge ne le remplace plus */
+  const [objectifChoisi, setObjectifChoisi] = useState(false);
   /* à l'ouverture, le focus va sur le premier champ : le lecteur d'écran annonce « Nom de l'enclos » */
   const nomRef = useRef<HTMLInputElement>(null);
   useEffect(() => nomRef.current?.focus(), []);
@@ -183,7 +187,7 @@ export function EnclosForm({
         <Choix
           label="Autre jauge"
           valeur={b.autre}
-          onChange={(autre) => setB({ ...b, autre })}
+          onChange={(autre) => setB(changerAutreJauge(b, autre, objectifChoisi))}
           options={[
             { valeur: null, label: "Aucune" },
             ...AUTRES_JAUGES.map((j) => ({ valeur: j, label: j, icone: <IconeJauge jauge={j} /> })),
@@ -201,6 +205,23 @@ export function EnclosForm({
             />
           </label>
         )}
+      </fieldset>
+
+      <fieldset className="flex flex-col gap-2">
+        <legend className="mb-1 text-sm font-medium">Objectif de sérénité</legend>
+        <p className="text-xs text-muted-foreground">
+          Proposé selon l&apos;autre jauge : l&apos;Endurance ne monte qu&apos;en sérénité négative, l&apos;Amour qu&apos;en
+          sérénité positive, la Maturité entre −2 000 et +2 000.
+        </p>
+        <Choix
+          label="Objectif de sérénité"
+          valeur={b.objectif}
+          onChange={(objectif) => {
+            setObjectifChoisi(true);
+            setB({ ...b, objectif });
+          }}
+          options={OPTIONS_OBJECTIF}
+        />
       </fieldset>
 
       {erreurs.length > 0 && (

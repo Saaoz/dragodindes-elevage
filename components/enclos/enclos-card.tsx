@@ -17,8 +17,10 @@ import {
   formatNombre,
   formatSerenite,
   heureRappel,
+  OPTIONS_OBJECTIF,
   raisonRetour,
   texteAlerte,
+  texteAlerteJauge,
   visageDe,
   type Objectif,
   type VueEnclos,
@@ -47,6 +49,9 @@ export interface RappelCarte {
 
 export type Permission = NotificationPermission | "indisponible";
 
+/* phrase complète affichée après « Attention : » : première lettre en minuscule */
+const enMinuscule = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
+
 function evenementAgenda(enclos: Enclos, vue: VueEnclos, maintenantMs: number, margeMin: number): EvenementAgenda | null {
   /* heure de retour passée : aucun rappel ni agenda dans le passé (#31) */
   if (!vue.retour || vue.retardS !== null) return null;
@@ -55,6 +60,7 @@ function evenementAgenda(enclos: Enclos, vue: VueEnclos, maintenantMs: number, m
   const lignes = [`Reviens à « ${nom} » avant ${avant}.`];
   if (vue.alerte)
     lignes.push(`Une monture atteindra ${formatSerenite(vue.alerte.valeur)} : après, ${formatNombre(vue.alerte.gaspille)} points de jauge seraient gaspillés.`);
+  if (vue.alerteJauge) lignes.push(texteAlerteJauge(vue.alerteJauge, maintenantMs));
   if (vue.conseil) lignes.push(vue.conseil);
   return {
     uid: `enclos-${vue.index + 1}@dragodindes-elevage`,
@@ -77,11 +83,6 @@ function telecharger(nomFichier: string, contenu: string) {
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-
-const OBJECTIFS: { valeur: Objectif; label: string }[] = [
-  { valeur: "aucun", label: "Éviter ±5 000" },
-  { valeur: "maturite", label: "Rester en Maturité" },
-];
 
 export function EnclosCard({
   enclos,
@@ -341,6 +342,15 @@ export function EnclosCard({
             </p>
           )}
 
+          {vue.alerteJauge && (
+            <p className="flex gap-2 rounded-lg border border-warning/50 p-3 text-sm text-warning" data-testid="alerte-jauge">
+              <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
+              <span>
+                <strong>Attention</strong> : {enMinuscule(texteAlerteJauge(vue.alerteJauge, maintenantMs))}
+              </span>
+            </p>
+          )}
+
           <div className="flex flex-col gap-2 text-sm">
             <p className="font-medium">
               Sérénité estimée maintenant : {formatSerenite(sMin)}
@@ -385,7 +395,7 @@ export function EnclosCard({
                 taille="sm"
                 valeur={enclos.objectif}
                 onChange={onObjectif}
-                options={OBJECTIFS}
+                options={OPTIONS_OBJECTIF}
               />
             </div>
             {vue.conseil && <p>{vue.conseil}</p>}

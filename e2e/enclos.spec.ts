@@ -728,3 +728,42 @@ test("carte allégée (#57) : rouge seulement sous 30 min, sans jauge on ne parl
   await expect(carte2.getByText(/Aucune jauge de sérénité active/)).toHaveCount(1);
   await expect(carte2.getByText(/aucun objectif/i)).toHaveCount(0);
 });
+test("objectifs Endurance / Amour (#63) : proposé selon l'autre jauge, conseil dans la plage, alerte « ne monte plus »", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  await carte.getByRole("button", { name: "Saisir cet enclos" }).click();
+  await page.getByLabel("Sérénité exacte de la monture 1").fill("-4200");
+  await page.getByRole("button", { name: /Ajouter une monture/ }).click();
+  await page.getByLabel("Sérénité exacte de la monture 2").fill("-3800");
+  await page.getByRole("button", { name: /Ajouter une monture/ }).click();
+  await page.getByLabel("Sérénité exacte de la monture 3").fill("-3000");
+  await page.getByRole("button", { name: "Sérénité −" }).click();
+  await page.getByPlaceholder("ex. 200000 ou 85k").fill("60000");
+  const objectifSaisie = page.getByRole("group", { name: "Objectif de sérénité" });
+  await expect(objectifSaisie.getByRole("button", { name: /Éviter/ })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("group", { name: "Autre jauge" }).getByRole("button", { name: "Endurance" }).click();
+  await expect(objectifSaisie.getByRole("button", { name: "Rester en Endurance" })).toHaveAttribute("aria-pressed", "true");
+  await page.getByPlaceholder("ex. 120k").fill("200k");
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+
+  /* le conseil garde les montures en sérénité négative (avant #63 : 8 800 points, toutes en positif) */
+  await expect(carte.getByRole("button", { name: "Rester en Endurance" })).toHaveAttribute("aria-pressed", "true");
+  await expect(
+    carte.getByText(/À ton retour\s*: passe sur la jauge Sérénité \+ et mets 1\s900 points au total pour recentrer tes montures dans la zone Endurance/),
+  ).toBeVisible();
+  await expect(carte.getByTestId("alerte-jauge")).toHaveCount(0);
+
+  /* ressaisie : objectif choisi à la main, puis jauge Amour : l'objectif choisi reste ; alerte, les montures sont négatives */
+  await carte.getByRole("button", { name: "Je quitte l’enclos" }).click();
+  await expect(objectifSaisie.getByRole("button", { name: "Rester en Endurance" })).toHaveAttribute("aria-pressed", "true");
+  await objectifSaisie.getByRole("button", { name: /Éviter/ }).click();
+  await page.getByRole("group", { name: "Autre jauge" }).getByRole("button", { name: "Amour" }).click();
+  await expect(objectifSaisie.getByRole("button", { name: /Éviter/ })).toHaveAttribute("aria-pressed", "true");
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+  await expect(carte.getByRole("button", { name: /Éviter/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(carte.getByTestId("alerte-jauge")).toContainText(
+    /l’Amour ne monte pour aucune de tes montures en ce moment\s*: leur sérénité est négative/,
+  );
+  await expect(carte.getByTestId("alerte-jauge")).not.toContainText(/carburant|gaspill/);
+});

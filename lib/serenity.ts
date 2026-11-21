@@ -20,10 +20,14 @@ export const SERENITE_MAX = 5000;
 /** Seuils dont le franchissement est signalé : bas de la Maturité, passage Endurance/Amour, haut de la Maturité. */
 export const SEUILS_SERENITE = [-2000, 0, 2000] as const;
 
-/** Zone « moyenne » (Maturité) : -2 000 à +2 000. */
 /** Sans jauge de sérénité active, la sérénité ne bouge pas (quel que soit l'objectif coché). */
 export const MESSAGE_SANS_JAUGE = "Aucune jauge de sérénité active : la sérénité ne bouge pas.";
+/** Zone « moyenne » (Maturité) : -2 000 à +2 000. */
 export const ZONE_MATURITE: ZoneSerenite = { min: -2000, max: 2000 };
+/** Plage où l'Endurance monte : sérénité négative, -5 000 à -1 (#63, docs/serenite.md). */
+export const ZONE_ENDURANCE: ZoneSerenite = { min: -SERENITE_MAX, max: -1 };
+/** Plage où l'Amour monte : sérénité positive, 0 à +5 000 (0 compte en Amour, comme le visage violet). */
+export const ZONE_AMOUR: ZoneSerenite = { min: 0, max: SERENITE_MAX };
 
 /* ---------- types ---------- */
 
@@ -463,7 +467,7 @@ function calculerRemplissage(
     case "horsZone":
       message = !zone
         ? `Une monture est déjà à ${sens === "+" ? "+" : "−"}${fmt(SERENITE_MAX)} : chaque point de ${nomJauge} est gaspillé pour elle. N'en remets pas : sépare-la des autres ou utilise ${autre === "+" ? "Sérénité +" : "Sérénité −"}.`
-        : `Une monture est déjà hors de la zone voulue : ne mets pas de ${nomJauge}, déplace-la ou utilise ${autre === "+" ? "Sérénité +" : "Sérénité −"}.`;
+        : `Une monture est déjà hors de ${nomZone(zone)} : ne mets pas de ${nomJauge}, déplace-la ou utilise ${autre === "+" ? "Sérénité +" : "Sérénité −"}.`;
       break;
     default:
       message = "";
@@ -497,6 +501,14 @@ function calculerRemplissage(
 const nomSens = (sens: SensJauge): string => (sens === "+" ? "Sérénité +" : "Sérénité −");
 const memeZone = (a: ZoneSerenite, b: ZoneSerenite): boolean => a.min === b.min && a.max === b.max;
 
+/** Nom de la zone pour un joueur : « la zone Maturité », « la zone Endurance (sérénité négative) »… */
+export function nomZone(z: ZoneSerenite): string {
+  if (memeZone(z, ZONE_MATURITE)) return "la zone Maturité";
+  if (memeZone(z, ZONE_ENDURANCE)) return "la zone Endurance (sérénité négative)";
+  if (memeZone(z, ZONE_AMOUR)) return "la zone Amour (sérénité positive)";
+  return "la zone voulue";
+}
+
 /**
  * Remplissage conseillé à l'heure de retour, à partir de l'état des montures À CET INSTANT.
  *
@@ -525,17 +537,17 @@ export function remplissageAuRetour(etat: EtatSerenite, zone?: ZoneSerenite, p: 
   /* Au bord dans le sens de la jauge active : la jauge opposée, partie de zéro. */
   const autre: SensJauge = sens === "+" ? "-" : "+";
   const r = calculerRemplissage(serenites, autre, 0, undefined, z, p);
-  const nomZone = z && memeZone(z, ZONE_MATURITE) ? "la zone Maturité" : "la zone voulue";
+  const zoneNommee = z ? nomZone(z) : "";
   if (r.statut === "ok" && Math.round(r.points) >= 1) {
     const conseil = z
-      ? `Passe sur la jauge ${nomSens(autre)} et mets ${fmt(r.points)} points au total pour recentrer tes montures dans ${nomZone}.`
+      ? `Passe sur la jauge ${nomSens(autre)} et mets ${fmt(r.points)} points au total pour recentrer tes montures dans ${zoneNommee}.`
       : `Passe sur la jauge ${nomSens(autre)} et mets ${fmt(r.points)} points au total : c'est le maximum avant qu'une monture atteigne ${autre === "+" ? "+" : "−"}${fmt(SERENITE_MAX)}.`;
     return { ...r, message: conseil, conseil };
   }
   /* Aucune des deux jauges ne garde tout le groupe : il faut le séparer. */
   const largeur = z ? z.max - z.min : 2 * SERENITE_MAX;
   const conseil = z
-    ? `Tes montures sont trop écartées pour être recentrées ensemble dans ${nomZone} (${fmt(r.ecart)} d'écart, il faut moins de ${fmt(largeur)}) : sépare-les dans des enclos différents.`
+    ? `Tes montures sont trop écartées pour être recentrées ensemble dans ${zoneNommee} (${fmt(r.ecart)} d'écart, il faut moins de ${fmt(largeur)}) : sépare-les dans des enclos différents.`
     : `Une monture est à +${fmt(SERENITE_MAX)} et une autre à −${fmt(SERENITE_MAX)} : quelle que soit la jauge, des points sont gaspillés. Sépare-les dans des enclos différents.`;
   return {
     ...r,
