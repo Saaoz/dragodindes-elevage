@@ -22,6 +22,7 @@ import {
   raisonRetour,
   texteAlerte,
   texteAlerteJauge,
+  texteAutreJauge,
   visageDe,
   type Objectif,
   type VueEnclos,
@@ -388,10 +389,11 @@ export function EnclosCard({
                   : `${formatNombre(plan.etat.niveauJauge)} / ${formatNombre(CAPACITE_JAUGE)} (estimé)`}
               </p>
             )}
-            {enclos.autreJauge && vue.autreVideMs !== null && (
-              <p className="flex items-center gap-1.5 text-muted-foreground">
-                <IconeJauge jauge={enclos.autreJauge} />
-                Jauge {enclos.autreJauge} vide à {formatHeure(vue.autreVideMs, maintenantMs)}
+            {enclos.autreJauge && vue.consoAutre && (
+              /* « vide à » pauses comprises ; « en pause » quand aucune monture n'est dans sa plage (#73) */
+              <p className="flex items-start gap-1.5 text-muted-foreground" data-testid="autre-jauge">
+                <IconeJauge jauge={enclos.autreJauge} className="mt-0.5" />
+                <span>{texteAutreJauge(enclos.autreJauge, vue.consoAutre, maintenantMs)}</span>
               </p>
             )}
           </div>

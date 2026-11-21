@@ -286,6 +286,53 @@ export function pointsConsommes(niveau: number, secondes: number, p: ParamsJauge
 export const tempsVidage = (niveau: number, p: ParamsJauge = {}): number =>
   tempsPourConsommer(niveau, bornerNiveau(niveau, p), p);
 
+/* ---------- jauge qui ne consomme que par intervalles (#73) ---------- */
+
+/** Intervalle [début ; fin[ (n'importe quelle unité de temps ; ±Infinity autorisés). */
+export type Intervalle = readonly [number, number];
+
+/** Réunion d'intervalles : triés, fusionnés (bords qui se touchent compris), intervalles vides retirés. */
+export function unionIntervalles(intervalles: readonly Intervalle[]): [number, number][] {
+  const tries = intervalles.filter(([a, b]) => a < b).sort((x, y) => x[0] - y[0]);
+  const union: [number, number][] = [];
+  for (const [a, b] of tries) {
+    const dernier = union[union.length - 1];
+    if (dernier && a <= dernier[1]) dernier[1] = Math.max(dernier[1], b);
+    else union.push([a, b]);
+  }
+  return union;
+}
+
+/** Durée passée dans `union` (réunion d'intervalles) entre 0 et `t`. */
+export function dureeActive(union: readonly Intervalle[], t: number): number {
+  let d = 0;
+  for (const [a, b] of union) d += Math.max(0, Math.min(b, t) - Math.max(a, 0));
+  return d;
+}
+
+/**
+ * Jauge qui ne se vide QUE pendant les intervalles `actif` (secondes depuis le départ, réunion déjà faite par
+ * `unionIntervalles`), en pause le reste du temps. Le débit ne dépend que du niveau restant (tiers), donc des
+ * points déjà consommés : le niveau à l'instant t est celui d'une jauge vidée sans arrêt pendant la durée active.
+ * Renvoie l'instant (s) où elle est vide, ou `Infinity` si elle ne se vide jamais (pause définitive avant).
+ */
+export function tempsVidageIntermittent(niveau: number, actif: readonly Intervalle[], p: ParamsJauge = {}): number {
+  const total = tempsVidage(niveau, p);
+  if (total <= 0) return 0;
+  let cumul = 0;
+  for (const [a, b] of actif) {
+    const debut = Math.max(a, 0);
+    if (b <= debut) continue;
+    if (cumul + (b - debut) >= total) return debut + (total - cumul);
+    cumul += b - debut;
+  }
+  return Infinity;
+}
+
+/** Points consommés au bout de `secondes` par une jauge qui ne se vide que pendant `actif` (voir ci-dessus). */
+export const pointsConsommesIntermittent = (niveau: number, actif: readonly Intervalle[], secondes: number, p: ParamsJauge = {}): number =>
+  pointsConsommes(niveau, dureeActive(actif, secondes), p);
+
 /** Sérénité d'une monture après `points` consommés dans le sens donné (bornée à ±5 000). */
 export function deplacer(serenite: number, sens: SensJauge | null, points: number): number {
   const s = bornerSerenite(serenite);

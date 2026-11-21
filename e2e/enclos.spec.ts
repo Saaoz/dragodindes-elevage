@@ -843,6 +843,31 @@ test("objectifs Endurance / Amour (#63) : proposé selon l'autre jauge, conseil 
   await expect(carte.getByTestId("alerte-jauge")).not.toContainText(/carburant|gaspill/);
 });
 
+test("jauge Endurance en pause hors plage (#73) : plus de « vide à » quand aucune monture n'est en sérénité négative", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  await carte.getByRole("button", { name: "Saisir cet enclos" }).click();
+  /* −2 000 en Sérénité + (1 pt/s) : passe à −1 à 21 h 33, puis l'Endurance ne se vide plus */
+  await page.getByLabel("Sérénité exacte de la monture 1").fill("-2000");
+  await page.getByRole("button", { name: "Sérénité +" }).click();
+  await page.getByPlaceholder("ex. 200000 ou 85k").fill("60000");
+  await page.getByRole("group", { name: "Autre jauge" }).getByRole("button", { name: "Endurance" }).click();
+  await page.getByPlaceholder("ex. 120k").fill("90k");
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+
+  const ligne = carte.getByTestId("autre-jauge");
+  await expect(ligne).toHaveText(/^Jauge Endurance en pause à partir de 21\sh\s33\s: plus aucune monture en sérénité négative\.$/);
+  await expect(ligne).not.toContainText("vide à");
+
+  await page.clock.fastForward(60 * 60_000);
+  await expect(ligne).toHaveText(/^Jauge Endurance en pause depuis 21\sh\s33\s: aucune monture en sérénité négative\.$/);
+
+  /* ressaisie : le niveau prérempli ne compte que les 1 999 s de consommation (90 000 − 3 998) */
+  await carte.getByRole("button", { name: "Je quitte l’enclos" }).click();
+  await expect(page.getByPlaceholder("ex. 120k")).toHaveValue("86002");
+});
+
 /* #65 : tournée = le plus urgent + les enclos dont le retour tombe dans les 15 min qui suivent */
 async function saisirTournee(page: Page, nom: string, serenite: string, niveau = "200000") {
   await page.getByRole("region", { name: nom }).getByRole("button", { name: "Saisir cet enclos" }).click();

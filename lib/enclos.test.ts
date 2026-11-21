@@ -11,6 +11,8 @@ import {
   objectifParDefaut,
   OPTIONS_OBJECTIF,
   texteAlerteJauge,
+  texteAutreJauge,
+  consoAutreJauge,
   ZONES,
   CONSEIL_RETARD,
   enclosUrgents,
@@ -110,12 +112,13 @@ describe("enclosDeBrouillon", () => {
     expect(b.niveau).toBe("200000");
   });
   it("brouillonDe avec état estimé : l'autre jauge repart de son niveau estimé", () => {
+    /* sérénité 0 poussée vers le haut : toujours en Amour, la jauge Amour se vide sans pause */
     const e = enclosSchema.parse({
       nom: "Test",
       montures: [{ serenite: 0 }],
       jaugeSerenite: "+",
       niveauSerenite: 200000,
-      autreJauge: "Endurance",
+      autreJauge: "Amour",
       niveauAutre: 90000,
       saisieLe: T0 - 20 * 60_000,
     });
@@ -130,7 +133,7 @@ describe("enclosDeBrouillon", () => {
       montures: [{ serenite: 0 }],
       jaugeSerenite: "+",
       niveauSerenite: 200000,
-      autreJauge: "Endurance",
+      autreJauge: "Amour",
       niveauAutre: 1000,
       saisieLe: T0 - 60 * 60_000,
     });
@@ -171,7 +174,7 @@ describe("vueEnclos", () => {
     expect(v.plan.etat.serenites[0]).toBe(-3000 + 600 * 4);
   });
   it("heure de vidage de l'autre jauge", () => {
-    const e = enclosSchema.parse({ ...enclosTest([0], 1000), autreJauge: "Endurance", niveauAutre: 3600 });
+    const e = enclosSchema.parse({ ...enclosTest([0], 1000), autreJauge: "Amour", niveauAutre: 3600 });
     expect(vueEnclos(e, 0, T0).autreVideMs).toBe(T0 + 3600 * 1000);
   });
 });
@@ -730,13 +733,129 @@ describe("alerte : Endurance / Amour / Maturité qui ne monte plus (#63)", () =>
     expect(vueEnclos(enclos([-2000], "+", 60000, "Endurance", 1000), 0, T0).alerteJauge).toBeNull();
     expect(vueEnclos(enclos([-2000], "+", 60000, "Expérience de monture"), 0, T0).alerteJauge).toBeNull();
     expect(vueEnclos(enclos([2000], null, 0, "Endurance", 0), 0, T0).alerteJauge).toBeNull();
-    expect(vueEnclos(enclos([2000], null, 0, "Endurance", 1000), 0, T0 + 3 * 3600_000).alerteJauge).toBeNull();
+    /* la monture 1 est en Endurance : la jauge se vide (1 000 s), plus d'alerte pour la monture 2 ensuite (#73) */
+    expect(vueEnclos(enclos([-3000, 2000], null, 0, "Endurance", 1000), 0, T0 + 3 * 3600_000).alerteJauge).toBeNull();
     expect(vueEnclos({ ...enclos([2000], null, 0, "Endurance"), saisieLe: null }, 0, T0).alerteJauge).toBeNull();
   });
 
   it("l'alerte parle de temps perdu, jamais de carburant ni de note de développeur", () => {
     const v = vueEnclos(enclos([-3200, -2400], "+", 150000, "Endurance", 90000), 0, T0);
     expect(texte(v)).not.toMatch(/carburant|gaspill|vérifier/);
+  });
+});
+
+describe("jauge Endurance / Amour / Maturité en pause hors plage (#73)", () => {
+  const S = 1000;
+  const enclos = (serenites: number[], sens: "+" | "-" | null, niveau: number, autreJauge: string, niveauAutre: number) =>
+    enclosSchema.parse({
+      nom: "A",
+      montures: serenites.map((serenite) => ({ serenite })),
+      jaugeSerenite: sens,
+      niveauSerenite: niveau,
+      autreJauge,
+      niveauAutre,
+      saisieLe: T0,
+    });
+  const ligne = (e: ReturnType<typeof enclos>, t: number) => ss(texteAutreJauge(e.autreJauge!, consoAutreJauge(e, t)!, t));
+
+  /* −2 000 en Sérénité + (tier 1, 1 pt/s) : sort de l'Endurance (atteint −1) après 1 999 s, soit 21 h 33 */
+  const sortie = enclos([-2000], "+", 60000, "Endurance", 90000);
+
+  it("issue : les montures sortent de la plage à t1 et n'y reviennent pas → la jauge ne se vide plus après t1", () => {
+    const avant = consoAutreJauge(sortie, T0)!;
+    expect(avant).toMatchObject({ videMs: null, enPause: false, pauseMs: T0 + 1999 * S, niveau: 90000 });
+    expect(ligne(sortie, T0)).toBe("Jauge Endurance en pause à partir de 21 h 33 : plus aucune monture en sérénité négative.");
+    /* avant #73 : vide 85 000 s après la saisie, sans arrêt */
+    expect(vueEnclos(sortie, 0, T0).autreVideMs).toBeNull();
+    const niveauT1 = 90000 - pointsConsommes(90000, 1999);
+    for (const t of [3600, 3 * 3600, 48 * 3600]) {
+      const c = consoAutreJauge(sortie, T0 + t * S)!;
+      expect(c).toMatchObject({ enPause: true, pauseMs: T0 + 1999 * S, repriseMs: null, videMs: null });
+      expect(c.niveau).toBe(niveauT1);
+    }
+    expect(niveauT1).toBe(86002);
+    expect(ligne(sortie, T0 + 3600 * S)).toBe("Jauge Endurance en pause depuis 21 h 33 : aucune monture en sérénité négative.");
+  });
+
+  it("la carte reçoit la consommation via vueEnclos", () => {
+    const v = vueEnclos(sortie, 0, T0 + 3600 * S);
+    expect(v.consoAutre).toEqual(consoAutreJauge(sortie, T0 + 3600 * S));
+    expect(vueEnclos(enclosTest([0], 1000), 0, T0).consoAutre).toBeNull();
+    expect(vueEnclos({ ...sortie, saisieLe: null }, 0, T0).consoAutre).toBeNull();
+  });
+
+  it("une monture reste dans la plage, une autre en sort : la jauge continue de se vider", () => {
+    /* la jauge de sérénité (2 500 points) est vide avant que −4 000 atteigne −1 ; −2 000 sort à 1 999 s */
+    const e = enclos([-4000, -2000], "+", 2500, "Endurance", 3600);
+    expect(vueEnclos(e, 0, T0).autreVideMs).toBe(T0 + 3600 * S);
+    const c = consoAutreJauge(e, T0 + 2400 * S)!;
+    expect(c).toMatchObject({ enPause: false, niveau: 3600 - 2400 });
+    expect(ligne(e, T0)).toBe("Jauge Endurance vide à 22 h 00");
+  });
+
+  it("déjà hors plage à la saisie, puis retour dans la plage : en pause, reprise, « vide à » recalculé", () => {
+    /* −500 remonté par Sérénité + : entre en Amour (0) après 500 s, 21 h 08 ; 3 600 s de jauge → vide 22 h 08 */
+    const e = enclos([-500], "+", 60000, "Amour", 3600);
+    expect(consoAutreJauge(e, T0)).toMatchObject({ enPause: true, pauseMs: null, repriseMs: T0 + 500 * S, videMs: T0 + 4100 * S, niveau: 3600 });
+    expect(ligne(e, T0)).toBe("Jauge Amour en pause : aucune monture en sérénité positive (0 compris). Elle reprend vers 21 h 08 et sera vide à 22 h 08.");
+    expect(consoAutreJauge(e, T0 + 600 * S)).toMatchObject({ enPause: false, niveau: 3500 });
+    expect(ligne(e, T0 + 600 * S)).toBe("Jauge Amour vide à 22 h 08");
+  });
+
+  it("pause au milieu : la Maturité s'arrête entre deux montures puis reprend", () => {
+    /* Sérénité + (1 pt/s) : +1 000 sort de la Maturité à 1 000 s ; −5 000 y entre à 3 000 s, en sort à 7 000 s */
+    const e = enclos([1000, -5000], "+", 60000, "Maturité", 3000);
+    const c = consoAutreJauge(e, T0 + 2000 * S)!;
+    expect(c).toMatchObject({ enPause: true, pauseMs: T0 + 1000 * S, repriseMs: T0 + 3000 * S, videMs: T0 + 5000 * S, niveau: 2000 });
+    expect(ligne(e, T0 + 2000 * S)).toBe(
+      "Jauge Maturité en pause depuis 21 h 16 : aucune monture entre −2 000 et +2 000. Elle reprend vers 21 h 50 et sera vide à 22 h 23.",
+    );
+    expect(consoAutreJauge(e, T0 + 4000 * S)).toMatchObject({ enPause: false, niveau: 1000 });
+    expect(consoAutreJauge(e, T0 + 6000 * S)).toMatchObject({ enPause: false, niveau: 0 });
+  });
+
+  it("les tiers comptent : la vitesse dépend du niveau restant, pas du temps écoulé", () => {
+    /* 90 000 : 10 000 points en tier 2 (2 pts/s, 5 000 s) puis tier 1 ; pause de 2 000 s au milieu */
+    const e = enclos([1000, -5000], "+", 60000, "Maturité", 90000);
+    /* 1 000 s actives (2 000 points), pause, reprise à 3 000 s : les 8 000 points restants du tier 2 prennent 4 000 s */
+    expect(consoAutreJauge(e, T0 + 2000 * S)!.niveau).toBe(88000);
+    expect(consoAutreJauge(e, T0 + 7000 * S)!.niveau).toBe(80000);
+  });
+
+  it("Expérience de monture : ne dépend pas de la sérénité, se vide sans arrêt", () => {
+    const e = enclos([5000, -5000], null, 0, "Expérience de monture", 3600);
+    expect(consoAutreJauge(e, T0 + 600 * S)).toMatchObject({ enPause: false, videMs: T0 + 3600 * S, niveau: 3000 });
+    expect(ligne(e, T0)).toBe("Jauge Expérience de monture vide à 22 h 00");
+  });
+
+  it("jauge vide : ni pause ni reprise", () => {
+    const e = enclos([-3000], null, 0, "Endurance", 0);
+    expect(consoAutreJauge(e, T0 + 60 * S)).toMatchObject({ enPause: false, videMs: T0, niveau: 0 });
+  });
+
+  it("alerte #63 : sa fenêtre va jusqu'à la nouvelle heure « vide » (pauses comprises)", () => {
+    /* sans pause, la jauge Maturité (6 000) serait vide à 6 000 s, avant la sortie de −5 000 (7 000 s) : la monture 2
+       n'était pas annoncée. Avec la pause 1 000 → 3 000 s, il ne reste que 5 000 s actives : la jauge n'est jamais
+       vide, la monture 2 sortira avant */
+    const e = enclos([1000, -5000], "+", 60000, "Maturité", 6000);
+    const v = vueEnclos(e, 0, T0);
+    expect(v.autreVideMs).toBeNull();
+    expect(v.consoAutre).toMatchObject({ enPause: false, pauseMs: T0 + 7000 * S });
+    /* une jauge plus courte (4 500) est vide à 6 500 s (avant : 4 500 s) */
+    expect(vueEnclos(enclos([1000, -5000], "+", 60000, "Maturité", 4500), 0, T0).autreVideMs).toBe(T0 + 6500 * S);
+    /* à 6 500 s, l'ancienne heure (6 000 s) est passée : l'alerte disparaissait ; la jauge a encore du carburant */
+    expect(vueEnclos(e, 0, T0 + 6500 * S).alerteJauge).toMatchObject({ deja: true, montures: [0], quandMs: T0 + 1000 * S });
+    const tard = vueEnclos(e, 0, T0 + 7200 * S);
+    expect(tard.alerteJauge).toMatchObject({ deja: true, montures: [0, 1], quandMs: T0 + 7000 * S });
+    /* pause définitive : l'alerte reste tant que la jauge a du carburant */
+    expect(vueEnclos(sortie, 0, T0 + 48 * 3600 * S).alerteJauge).toMatchObject({ deja: true, quandMs: T0 + 1999 * S });
+  });
+
+  it("brouillon de ressaisie : l'autre jauge repart du niveau estimé, sans compter la pause", () => {
+    const t = T0 + 3600 * S;
+    expect(brouillonDe(sortie, vueEnclos(sortie, 0, t).plan.etat).niveauAutre).toBe("86002");
+    const m = enclos([1000, -5000], "+", 60000, "Maturité", 3000);
+    expect(brouillonDe(m, vueEnclos(m, 0, T0 + 2000 * S).plan.etat).niveauAutre).toBe("2000");
   });
 });
 
