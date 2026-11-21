@@ -49,6 +49,9 @@ export interface RappelCarte {
 
 export type Permission = NotificationPermission | "indisponible";
 
+/* phrase complète affichée après « Attention : » : première lettre en minuscule */
+const enMinuscule = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
+
 function evenementAgenda(enclos: Enclos, vue: VueEnclos, maintenantMs: number, margeMin: number): EvenementAgenda | null {
   /* heure de retour passée : aucun rappel ni agenda dans le passé (#31) */
   if (!vue.retour || vue.retardS !== null) return null;
@@ -343,7 +346,7 @@ export function EnclosCard({
             <p className="flex gap-2 rounded-lg border border-warning/50 p-3 text-sm text-warning" data-testid="alerte-jauge">
               <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
               <span>
-                <strong>Attention</strong> : {texteAlerteJauge(vue.alerteJauge, maintenantMs)}
+                <strong>Attention</strong> : {enMinuscule(texteAlerteJauge(vue.alerteJauge, maintenantMs))}
               </span>
             </p>
           )}

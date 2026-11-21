@@ -763,7 +763,7 @@ test("objectifs Endurance / Amour (#63) : proposé selon l'autre jauge, conseil 
   await page.getByRole("button", { name: /Enregistrer/ }).click();
   await expect(carte.getByRole("button", { name: /Éviter/ })).toHaveAttribute("aria-pressed", "true");
   await expect(carte.getByTestId("alerte-jauge")).toContainText(
-    /L’Amour ne monte pour aucune de tes montures en ce moment\s*: leur sérénité est négative/,
+    /l’Amour ne monte pour aucune de tes montures en ce moment\s*: leur sérénité est négative/,
   );
   await expect(carte.getByTestId("alerte-jauge")).not.toContainText(/carburant|gaspill/);
 });
