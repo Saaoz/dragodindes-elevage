@@ -1,9 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- manipulation de JSON brut dans les tests */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import fixture from "./__fixtures__/export-v2.json";
-import { defaultAppData, type PriceKey } from "./schema";
+import { PRICE_KEYS, SERVER_IDS, defaultAppData, type PriceKey, type ServerId } from "./schema";
+import { matrice } from "./rentabilite";
 import {
-  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateMethodeRappel, migrateRappelTournee, migrateOptimakina, migrateRappels, migrateRappelsAgenda, migrateV1, parseExport, syncOnglets,
+  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateMethodeRappel, migrateRappelTournee, migrateOptimakina, migrateRappels, migrateRappelsAgenda, migrateV1, parseExport, priceCount, syncOnglets,
   parsePaste, priceValues, resetDemo, useDemoStore, useStore,
 } from "./store";
 
@@ -504,6 +505,28 @@ describe("mode démo isolé (cas de #5)", () => {
     expect(useDemoStore.getState().prices.Imagiro).toMatchObject(
       Object.fromEntries(Object.entries(demoData().prices.Imagiro!).map(([k, e]) => [k, { v: e.v }])),
     );
+  });
+
+  it("la démo donne des prix différents selon le serveur, et un serveur a des prix manquants (#67)", () => {
+    const P = demoData().prices;
+    expect(P.Imagiro?.g5?.v).toBe(300000); // Imagiro reste la référence
+    const g5 = SERVER_IDS.map((id) => P[id]?.g5?.v);
+    expect(new Set(g5).size).toBeGreaterThanOrEqual(3);
+    expect(P.Orukam?.opti4?.v).not.toBe(P.Imagiro?.opti4?.v);
+    expect(priceCount(P, "Ombre")).toBeLessThan(PRICE_KEYS.length);
+    expect(P.Ombre?.g3).toBeUndefined();
+  });
+
+  it("la meilleure génération cible change d'au moins 3 serveurs par rapport à Imagiro (#67)", () => {
+    const { calc, matB, prices } = demoData();
+    const lignes = matrice(prices, calc, matB).lignes;
+    const meilleure = (server: ServerId) => {
+      const complets = lignes.find((l) => l.server === server)!.cases.filter((c) => !c.r.incomplete);
+      return complets.reduce((a, b) => (b.r.profitExpected > a.r.profitExpected ? b : a)).g;
+    };
+    const ref = meilleure("Imagiro");
+    const differents = SERVER_IDS.filter((id) => id !== "Imagiro" && meilleure(id) !== ref);
+    expect(differents.length).toBeGreaterThanOrEqual(3);
   });
 
   it("priceValues fournit les prix numériques pour calc", () => {
