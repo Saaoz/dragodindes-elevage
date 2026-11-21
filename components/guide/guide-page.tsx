@@ -8,7 +8,7 @@ import { champ } from "@/components/commun/champ";
 import { EnTete, Page } from "@/components/commun/en-tete";
 import { Switch } from "@/components/ui/switch";
 import {
-  ALMANAX, CAPACITE_JAUGE, CARBURANTS, ENCLOS_METIER, FILETS, GENETONS, JAUGES, MAKINAS, SERVEURS, SOURCES, TIERS,
+  ALMANAX, CAPACITE_JAUGE, CAPACITES, CARBURANTS, ENCLOS_METIER, FILETS, GENETONS, JAUGES, MAKINAS, SERVEURS, SOURCES, TIERS,
   VERSION_JEU,
 } from "@/lib/data";
 import { chercherCouleur, heuresXp, lireAlmanax, TRAJETS_XP } from "@/lib/guide";
@@ -21,6 +21,7 @@ const SECTIONS = [
   { id: "reproduction", titre: "Reproduction" },
   { id: "jauges", titre: "Jauges et tiers 3.7" },
   { id: "makinas", titre: "Makinas, clonage, extraction" },
+  { id: "capacites", titre: "Capacités" },
   { id: "croisements", titre: "Croisements" },
   { id: "conseils", titre: "Quoi viser" },
   { id: "outils", titre: "Outil XP" },
@@ -524,12 +525,10 @@ export function GuidePage() {
           <Tableau legende="Makinas" entetes={["Makina", "Effet"]} lignes={MAKINAS.map((m) => [m.nom, m.effet])} />
           <Liste
             items={[
-              "Une seule Makina par accouplement. Les capacités ne s'héritent pas : elles viennent uniquement des Makinas.",
+              "Une seule Makina par accouplement.",
               <>
-                <strong>Reproducteur</strong> : un bébé supplémentaire (actif même si seul le mâle l&apos;a, non cumulable).
-              </>,
-              <>
-                <strong>Sage</strong> : double l&apos;XP de la monture.
+                Effets, obtention et perte des capacités (Sage, Reproductrice…) : voir la section{" "}
+                <a href="#capacites" className="underline underline-offset-4">Capacités</a>.
               </>,
               "Utilise une Makina de génération au moins égale à la cible.",
             ]}
@@ -562,6 +561,32 @@ export function GuidePage() {
             entetes={["Génération du parent", ...Object.keys(GENETONS).filter((g) => +g < 10)]}
             lignes={[["Génétons", ...Object.entries(GENETONS).filter(([g]) => +g < 10).map(([, v]) => v)]]}
           />
+        </Section>
+
+        <Section id="capacites" titre="Capacités" resume="Effets, obtention et conditions de chaque capacité de monture." ouvert={o("capacites")} {...p}>
+          <p>
+            Une capacité change la valeur d&apos;une monture. Elles sont les mêmes pour la dragodinde, le muldo et le
+            volkorne. Aucune ne s&apos;hérite : elle vient de la naissance (au hasard), de l&apos;Almanax ou, pour la
+            Caméléone, de la Kromakina.
+          </p>
+          <Tableau
+            legende="Capacités de monture"
+            entetes={["Capacité", "Effet", "Comment l'obtenir", "Conditions"]}
+            lignes={CAPACITES.map((c) => [<strong key={c.nom}>{c.nom}</strong>, c.effet, c.obtention, c.conditions])}
+          />
+          <Liste
+            items={[
+              "Inutile de payer une Makina pour décrocher une capacité : l'Animakina choisit désormais le sexe du bébé, pas la capacité. Seule la Kromakina (Caméléone, cosmétique) en donne une.",
+              "Pour une capacité utile, vise les naissances d'un mois d'Almanax : février (Endurante), juillet (Amoureuse), octobre (Sage). Tous les bébés nés ce jour-là l'ont.",
+              "Garde une monture qui a déjà Reproductrice ou Sage : le clonage la lui fait perdre, et sans Makina elle ne reviendra que par chance à la naissance (3 % et 6 %).",
+              "Reproductrice sur un seul parent suffit (même le mâle) ; avoir les deux n'apporte rien de plus.",
+            ]}
+          />
+          <p className="text-muted-foreground">
+            À vérifier en jeu : si une monture peut cumuler plusieurs capacités (les guides parlent d&apos;« une
+            capacité »), l&apos;effet exact de Sage en combat, et la Kromakina face à l&apos;apparat caméléone. Voir
+            « Sources et doutes ».
+          </p>
         </Section>
 
         <Section id="croisements" titre="Croisements" resume="Couleurs par génération, recherche." ouvert={o("croisements")} {...p}>
@@ -653,6 +678,10 @@ export function GuidePage() {
               ["Animakina", "Capacité aléatoire (3.5)", "Choix du sexe du bébé (3.7 : Noobs, Sigilos). Retenu."],
               ["Probabilités de capacité", "27 / 27 / 27 / 14 / 5 % (3.5, avec Précoce)", "8 / 8 / 6 / 3 % (3.7 ; Précoce supprimée). Retenu."],
               ["Taxe de mise en vente à l'HDV", "1 % (Bonta/Brâkmar, bon alignement), 2 % (autre alignement), 5 % (Astrub) : 2 % confirmé en jeu par un joueur (21/11/2026) ; 1 % et 5 % donnés par le même joueur, cohérents avec le tutoriel officiel Dofus 3 (la taxe dépend de l'alignement et de l'HDV)", "Guides récents (dofocus.fr) : 2 % payés à la mise en vente, non remboursés si invendu. Défaut du simulateur : 2 %."],
+              ["Capacité Précoce", "Supprimée en 3.7 (Noobs, présentation 3.7 du 04/10/2026 ; gardée comme supprimée)", "Toujours listée, avec un jour d'Almanax le 10 novembre (Sigilos 29/10/2026, Pros 3.5)"],
+              ["Obtention de Caméléone", "Kromakina, 100 % (Noobs 13/10/2026, Sigilos 29/10/2026). Retenu.", "Apparat caméléone à 10 000 génétons, sans mention de la Kromakina (présentation 3.7 du 04/10/2026)"],
+              ["Effet de Sage", "XP doublée en mangeoire (Sigilos, entrée de la capacité)", "XP doublée en mangeoire et en combat (Sigilos, entrée de l'Almanax du 10 octobre). À vérifier en jeu."],
+              ["Capacités d'une monture", "Une seule (« sa capacité », Noobs, Pros)", "Cumul non précisé par les sources : à vérifier en jeu."],
               ["Bébés par accouplement", "1 (2 avec Reproducteur)", "« jusqu'à 4 » (guide qui mélange l'ancien système)"],
             ]}
           />
