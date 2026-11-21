@@ -188,6 +188,19 @@ trop tôt quand les montures atteignent leur maximum.
 - **Ressaisie** (`brouillonDe`, #35) : le niveau prérempli de l'autre jauge est le niveau estimé avec les pauses.
 - Format stocké inchangé (version 12).
 
+## Caractéristiques des montures (relevé en jeu, 21/11/2026)
+
+- **Endurance, Maturité, Amour** : maximum **20 000** chacune, y compris pour les montures **Dorées** (aucune
+  différence visible). Une monture ne peut **pas s'accoupler** tant que ces trois valeurs ne sont pas au maximum.
+- **Débit** : au survol, une jauge affiche « la jauge perd 10 toutes les 10 s » au tier 1, et chaque monture gagne
+  10 toutes les 10 s, soit 1 point par seconde, conforme au modèle (`TIERS`). Chaque point consommé profite à **chaque**
+  monture de l'enclos.
+- **Le débit ne dépend pas du nombre de montures** : avec moins de 10 montures, la jauge consomme autant. Un enclos qui
+  n'est pas plein (10 montures, `MAX_MONTURES`) gaspille donc du carburant.
+- **Priorité du joueur** : qu'une monture soit déjà au maximum d'une des trois caractéristiques n'est pas grave. Ce qui
+  coûte cher, c'est la **sérénité** : une monture à −5 000 qu'il faut remonter au moins à 0 pour l'Amour fait perdre
+  beaucoup de temps.
+
 ## Hypothèses
 
 1. 1 point de jauge = 1 point de sérénité, pour toutes les montures, quelle que soit leur couleur.
