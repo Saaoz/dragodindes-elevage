@@ -78,10 +78,9 @@ describe("carte du site : cibles", () => {
     }
   });
 
-  it("le guide de la carte couvre les sections existantes (hors Capacités, ajoutée à part)", () => {
+  it("le guide de la carte couvre toutes les sections existantes", () => {
     const dansCarte = ECRANS.find((e) => e.id === "guide")!.fonctionnalites.map((f) => f.href.split("#")[1]);
     for (const id of idsGuide()) {
-      if (id === "capacites") continue;
       expect(dansCarte, `section du guide absente de la carte : ${id}`).toContain(id);
     }
   });

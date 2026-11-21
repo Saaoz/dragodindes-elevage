@@ -37,7 +37,7 @@ export function CarteJoueurs() {
         aria-label="Détail"
         aria-live="polite"
         data-testid="detail"
-        className="z-20 scroll-mt-16 rounded-xl border bg-card p-4 text-card-foreground shadow-xs md:sticky md:top-16"
+        className="z-20 scroll-mt-24 rounded-xl border bg-card p-4 text-card-foreground shadow-xs md:sticky md:top-16"
       >
         {noeud ? (
           <div className="flex flex-col gap-2">
