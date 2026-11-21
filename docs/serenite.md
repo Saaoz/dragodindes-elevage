@@ -165,6 +165,12 @@ mettait toutes en positif).
 jauge de sérénité). L'**Expérience de monture** ne dépend pas de la sérénité : elle se vide sans arrêt. La jauge de
 sérénité garde son modèle (elle se vide sans arrêt, voir hypothèse 2).
 
+**Testé en jeu par le joueur (21/11/2026)** sur les jauges Endurance, Maturité et Amour : la jauge **ne bouge plus**
+(1) quand l'enclos est **vide** et (2) quand les montures sont **au maximum** de cette caractéristique. Pas de perte
+de carburant dans ces deux cas. Le cas (2) n'est pas encore modélisé : l'appli ne connaît pas l'Endurance, la
+Maturité ou l'Amour actuels des montures (issue dédiée). Tant que ce n'est pas fait, l'heure « vide à » peut être
+trop tôt quand les montures atteignent leur maximum.
+
 - **Calcul** (`consoAutreJauge`, `lib/enclos.ts`, fonction pure) : pour chaque monture, la période où elle est dans
   la plage (`periodeDansPlage`, depuis l'état saisi : la sérénité bouge dans un seul sens tant que la jauge de
   sérénité n'est pas vide, puis s'arrête) ; la jauge consomme pendant leur **réunion** (`unionIntervalles`,
@@ -201,8 +207,8 @@ sérénité garde son modèle (elle se vide sans arrêt, voir hypothèse 2).
 - [ ] Une monture **Dorée** bouge-t-elle 5 fois plus lentement en sérénité (×5) ? Non modélisé.
 - [ ] La jauge **continue-t-elle à se vider** une fois toutes les montures à ±5 000 ? (hypothèse 2)
 - [x] Une jauge **Endurance, Amour ou Maturité continue-t-elle à se vider** quand aucune monture n'est dans sa
-  plage (#63) ? **Retenu : non** (décision du joueur du 21/11/2026, faute de mieux : on suit les guides ; calcul
-  depuis #73). D'après dofuspourlespros.com (guide de l'éleveur 2026, écrit pour la 3.5, à vérifier en jeu en
+  plage (#63) ? **Non** : retenu d'après les guides (21/11/2026), puis **confirmé en jeu** par le joueur pour
+  l'enclos vide et pour des montures au maximum (Endurance, Maturité, Amour) ; calcul depuis #73. D'après dofuspourlespros.com (guide de l'éleveur 2026, écrit pour la 3.5, à vérifier en jeu en
   3.7) : « si une jauge est active et qu'il n'y a aucune monture dans l'enclos ou que les montures dans l'enclos
   ne peuvent pas en profiter alors elle ne se vide pas » (écrit pour la mangeoire / XP, règle probablement
   générale). Si c'est vrai, sortir de la plage fait perdre du **temps**, pas du carburant (c'est ce que dit
