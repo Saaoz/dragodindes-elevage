@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Coins, Fence, House, RefreshCw, TriangleAlert, FlaskConical } from "lucide-react";
+import { BookOpen, Coins, Fence, House, Map as IconeCarte, RefreshCw, TriangleAlert, FlaskConical } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { useHydratation, useUi } from "@/components/app-state";
@@ -15,6 +15,7 @@ export const SECTIONS = [
   { href: "/enclos", label: "Enclos", icone: Fence },
   { href: "/rentabilite", label: "Rentabilité", icone: Coins },
   { href: "/guide", label: "Guide", icone: BookOpen },
+  { href: "/carte", label: "Carte", icone: IconeCarte },
 ] as const;
 
 const actif = (chemin: string, href: string) => (href === "/" ? chemin === "/" : chemin.startsWith(href));
@@ -124,7 +125,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         aria-label="Navigation principale (mobile)"
         className="fixed inset-x-0 bottom-0 z-30 border-t bg-background/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden"
       >
-        <ul className="mx-auto grid h-16 max-w-md grid-cols-4">
+        <ul className="mx-auto grid h-16 max-w-lg grid-cols-5">
           {SECTIONS.map(({ href, label, icone: Icone }) => {
             const on = actif(chemin, href);
             return (
@@ -133,7 +134,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                   href={href}
                   aria-current={on ? "page" : undefined}
                   className={cn(
-                    "flex h-full flex-col items-center justify-center gap-0.5 text-xs font-medium outline-none focus-visible:bg-muted",
+                    "flex h-full flex-col items-center justify-center gap-0.5 text-[11px] font-medium outline-none sm:text-xs focus-visible:bg-muted",
                     on ? "text-primary" : "text-muted-foreground",
                   )}
                 >

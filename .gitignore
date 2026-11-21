@@ -20,3 +20,5 @@ test-results
 .vercel
 # Service worker généré au build depuis scripts/sw.template.js (#55)
 public/sw.js
+# Données locales du plugin Understand-Anything (carte du code, #85)
+.ua/

@@ -5,7 +5,7 @@
 const VERSION = "__SW_VERSION__";
 const CURRENT = `elevage-${VERSION}`;
 // Pages de l'appli : leur HTML est mis en cache, et les assets hashés qu'elles référencent aussi.
-const PAGES = ["/", "/enclos", "/rentabilite", "/guide"];
+const PAGES = ["/", "/enclos", "/rentabilite", "/guide", "/carte"];
 const SHELL_URLS = [
   ...PAGES,
   "/manifest.webmanifest",
