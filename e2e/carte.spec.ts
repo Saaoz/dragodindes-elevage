@@ -37,16 +37,48 @@ test("carte : la liste équivalente donne les mêmes liens", async ({ page }) =>
   );
 });
 
-test("carte : onglets synchronisés avec #joueurs / #code, état d'attente du code", async ({ page }) => {
+test("carte : onglets synchronisés avec #joueurs / #code", async ({ page }) => {
   await page.goto("/carte#code");
   await expect(page.getByRole("tab", { name: "Pour les développeurs" })).toHaveAttribute("aria-selected", "true");
-  await expect(page.getByText("La carte du code arrive bientôt : elle sera générée à partir du code du projet.")).toBeVisible();
+  await expect(page.getByTestId("carte-code")).toBeVisible();
 
   await page.getByRole("tab", { name: "Pour les joueurs" }).click();
   await expect(page).toHaveURL(/\/carte#joueurs$/);
   await expect(page.getByTestId("noeud-enclos-retour")).toBeVisible();
   await page.getByRole("tab", { name: "Pour les développeurs" }).click();
   await expect(page).toHaveURL(/\/carte#code$/);
+});
+
+test("carte du code : chercher, ouvrir un fichier, suivre une dépendance, lien GitHub", async ({ page }) => {
+  await page.goto("/carte#code");
+  const detail = page.getByTestId("detail-code");
+
+  /* Recherche sans accents ni casse, Entrée ouvre le premier résultat. */
+  await page.getByRole("searchbox", { name: "Chercher un fichier" }).fill("ENCLOS.TS");
+  await page.keyboard.press("Enter");
+  await expect(detail.getByRole("heading", { name: "lib/enclos.ts" })).toBeVisible();
+  await expect(detail.getByRole("heading", { name: /^Testé par/ })).toBeVisible();
+  await expect(detail.getByRole("link", { name: "Voir sur GitHub" })).toHaveAttribute(
+    "href",
+    "https://github.com/Saaoz/dragodindes-elevage/blob/main/lib/enclos.ts",
+  );
+
+  /* Une dépendance du panneau ouvre ce fichier. */
+  await detail.getByRole("button", { name: "lib/enclos.test.ts" }).click();
+  await expect(detail.getByRole("heading", { name: "lib/enclos.test.ts" })).toBeVisible();
+
+  /* Sur la carte, au clavier. */
+  const noeud = page.getByTestId("fichier-lib/store.ts");
+  await noeud.focus();
+  await page.keyboard.press("Enter");
+  await expect(detail.getByRole("heading", { name: "lib/store.ts" })).toBeVisible();
+  await expect(noeud).toHaveAttribute("aria-pressed", "true");
+
+  /* Liste équivalente et source du graphe. */
+  await page.getByTestId("liste-code").locator("summary").click();
+  await page.getByTestId("liste-code").getByRole("button", { name: "app/guide/page.tsx" }).click();
+  await expect(detail.getByRole("heading", { name: "app/guide/page.tsx" })).toBeVisible();
+  await expect(page.getByTestId("carte-code-source")).toContainText(/Graphe analysé le \d+ \S+ \d{4}, au commit [0-9a-f]{7}/);
 });
 
 test("carte : pas de défilement horizontal, navigation lisible", async ({ page }) => {

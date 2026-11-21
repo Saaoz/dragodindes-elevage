@@ -107,6 +107,19 @@ Les notifications push (Upstash QStash + Web Push) ont été retirées : elles d
 à configurer pour chaque déploiement, ce qui ne convient pas à un projet open source que chacun peut héberger. L'appli
 n'a besoin d'aucune variable d'environnement.
 
+### Carte du code (`/carte#code`)
+
+L'onglet « Pour les développeurs » de la page Carte montre les fichiers du projet, leurs couches, leurs
+dépendances et un résumé de chacun. Le site ne fait aucun calcul et n'utilise aucune IA : il affiche
+[`lib/carte-code.json`](lib/carte-code.json), versionné, dont les positions sont déjà calculées.
+
+Mise à jour, à la main, quand le code a beaucoup changé :
+
+1. Dans Claude Code, avec le plugin Understand-Anything : `/understand --language fr`. Le graphe est écrit dans
+   `.ua/knowledge-graph.json`, qui n'est pas versionné. Après la première fois, la mise à jour est incrémentale.
+2. `npm run carte-code` : [`scripts/export-carte-code.mjs`](scripts/export-carte-code.mjs) lit ce graphe et
+   réécrit `lib/carte-code.json`. La date d'analyse et le commit analysé s'affichent sous la carte.
+
 ### Structure
 
 - `app/` : pages (App Router) · `components/` : composants par écran (`accueil/`, `enclos/`, `rentabilite/`, `guide/`, `commun/` ; shadcn/ui dans `components/ui`)
