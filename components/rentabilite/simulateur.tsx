@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState } from "react";
 import { ChevronDown, CircleCheck, CircleHelp, CircleX, RotateCcw, Scale } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -248,6 +249,9 @@ function Avance({ c, set }: { c: CalcState; set: (p: Partial<CalcState>) => bool
         </div>
         {interrupteur("takeza", "Takeza (Almanax)", "+20 % sur la génération cible, à date variable.")}
         {interrupteur("repro", "Capacité Reproducteur", "Un 2ᵉ bébé, avec les mêmes chances.")}
+        <p className="text-xs text-muted-foreground sm:col-span-full">
+          Effets et obtention des capacités : <Link href="/guide#capacites" className="underline underline-offset-4">guide, Capacités</Link>.
+        </p>
       </fieldset>
 
       <fieldset className="grid gap-3 sm:grid-cols-2">

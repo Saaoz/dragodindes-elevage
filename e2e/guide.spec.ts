@@ -37,3 +37,18 @@ test("guide : outil XP", async ({ page }) => {
   await page.getByRole("switch", { name: /Sage/ }).click();
   await expect(page.getByText(/30,1 h/)).toBeVisible();
 });
+
+test("guide : section Capacités ouverte par son ancre, tableau et renvoi depuis Makinas", async ({ page }) => {
+  await page.goto("/guide#capacites");
+  const capacites = page.locator("details#capacites");
+  await expect(capacites).toHaveAttribute("open", "");
+  const tableau = capacites.getByRole("table", { name: "Capacités de monture" });
+  await expect(tableau.getByRole("columnheader", { name: "Comment l'obtenir" })).toBeVisible();
+  await expect(tableau.getByRole("cell", { name: "Sage", exact: true })).toBeVisible();
+  await expect(tableau.getByRole("cell", { name: "Caméléone", exact: true })).toBeVisible();
+  await expect(page.getByRole("link", { name: "Capacités" }).first()).toBeVisible();
+
+  await page.goto("/guide#makinas");
+  await page.locator("details#makinas").getByRole("link", { name: "Capacités" }).click();
+  await expect(page.locator("details#capacites")).toHaveAttribute("open", "");
+});

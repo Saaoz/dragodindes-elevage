@@ -92,6 +92,44 @@ export const MAKINAS = [
   { nom: "Optimakina", effet: "Augmente de +20 % les chances d'obtenir la génération cible (3.7 ; +10 % en 3.5). Chaque Makina existe par type de monture et par génération : une Makina de génération supérieure ou égale à la cible convient, pas une inférieure (Noobs : « au minimum une makina de génération 6 » pour une cible 6). Le simulateur prend le prix de la génération cible, sinon la moins chère des générations supérieures renseignées (sources : Dofus pour les Noobs, guide de l'éleveur MàJ 13/10/2026 ; Guidactik confirme l'Optimakina sans détailler les générations ; JeuxEnd 3.7 : « Les Makinas sont ajustées avec la 3.7 », sans détail)." },
 ] as const;
 
+/* Capacités de monture (#84). Source unique du tableau « Capacités » du guide.
+   Recherche du 21/11/2026 : Dofus pour les Noobs (guide MàJ 13/10/2026 et présentation 3.7 du 04/10/2026),
+   Sigilos (29/10/2026, 3.7), Dofus pour les Pros (02/03/2026, 3.5). Identiques pour dragodinde, muldo et volkorne
+   (Noobs : « aucune différence au niveau de leur élevage »). Une monture n'a qu'une capacité (« sa capacité »,
+   Noobs et Pros) : cumul de plusieurs capacités non confirmé, à vérifier en jeu. */
+export const CAPACITES = [
+  {
+    nom: "Amoureuse",
+    effet: "Gain d'Amour doublé.",
+    obtention: "Aléatoire à la naissance, 8 % ; 100 % des bébés nés le 10 juillet (Almanax, Jihelair).",
+    conditions: "Ne s'hérite pas. Perdue au clonage.",
+  },
+  {
+    nom: "Endurante",
+    effet: "Gain d'Endurance doublé.",
+    obtention: "Aléatoire à la naissance, 8 % ; 100 % des bébés nés le 10 février (Almanax, Meash).",
+    conditions: "Ne s'hérite pas. Perdue au clonage.",
+  },
+  {
+    nom: "Sage",
+    effet: "Gain d'expérience doublé : environ 30 h au lieu de 60 h pour le niveau 200 en tier 4.",
+    obtention: "Aléatoire à la naissance, 6 % ; 100 % des bébés nés le 10 octobre (Almanax, Benjo).",
+    conditions: "Ne s'hérite pas. Perdue au clonage. Le doublement vaut-il aussi en combat ? À vérifier en jeu (Sigilos se contredit).",
+  },
+  {
+    nom: "Reproductrice",
+    effet: "Un bébé supplémentaire à l'accouplement (2 au lieu de 1).",
+    obtention: "Aléatoire à la naissance, 3 % (la plus rare). Aucun jour d'Almanax.",
+    conditions: "Actif même si seul le mâle l'a. Deux parents Reproducteurs ne donnent qu'un seul bébé en plus (non cumulable). Perdue au clonage.",
+  },
+  {
+    nom: "Caméléone",
+    effet: "Équipée, la monture prend les couleurs du personnage (cosmétique).",
+    obtention: "Kromakina à l'accouplement, 100 % (Noobs 13/10, Sigilos 29/10). La présentation 3.7 parle plutôt d'un apparat caméléone à 10 000 génétons : à vérifier en jeu.",
+    conditions: "Une seule Makina par accouplement. Aucun effet sur les jauges.",
+  },
+] as const;
+
 export const ALMANAX = [
   "Janvier (Trôma) : jauges de Maturité doublées (à vérifier en 3.7)",
   "Février (Meash) : capacité Endurante aux naissances",
