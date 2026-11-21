@@ -333,6 +333,112 @@ export function tempsVidageIntermittent(niveau: number, actif: readonly Interval
 export const pointsConsommesIntermittent = (niveau: number, actif: readonly Intervalle[], secondes: number, p: ParamsJauge = {}): number =>
   pointsConsommes(niveau, dureeActive(actif, secondes), p);
 
+/* ---------- jauge d'élevage : les montures s'arrêtent au maximum (#77) ---------- */
+
+/** Maximum de l'Endurance, de la Maturité et de l'Amour d'une monture : 20 000, Dorées comprises (relevé en jeu le
+    21/11/2026, docs/serenite.md « Caractéristiques des montures »). */
+export const STAT_MAX = 20000;
+
+/** Résultat de `profitsJauge` (temps en secondes depuis le départ). */
+export interface ProfitsJauge {
+  /** Pour chaque monture, la période [début ; fin[ où elle profite de la jauge : dans la plage ET pas au maximum.
+      Le début est celui de la plage (−Infinity : dès le départ) ; la fin est la sortie de la plage ou l'arrivée au
+      maximum, la première des deux. Valeur inconnue : la période est la plage elle-même (comme avant #77). */
+  periodes: [number, number][];
+  /** Réunion des `periodes` : la jauge consomme pendant ces intervalles, et seulement pendant eux. */
+  actif: [number, number][];
+  /** Pour chaque monture, l'instant où elle atteint le maximum (0 : déjà au maximum au départ) ; null si elle ne
+      l'atteint jamais (jauge vide avant, sortie de la plage) ou si sa valeur est inconnue. */
+  maximum: (number | null)[];
+}
+
+/**
+ * Jauge Endurance / Maturité / Amour d'un enclos (#77), par événements. Chaque monture a une période où sa sérénité est
+ * dans la plage de la jauge (`plages`, une par monture) et, si elle est connue, sa valeur actuelle (`valeurs`, sinon
+ * null). Une monture PROFITE de la jauge tant qu'elle est dans la plage et sous `max` ; la jauge consomme tant qu'au
+ * moins une monture en profite (sinon elle est en pause), au débit du tier de son niveau restant, et chaque point
+ * consommé ajoute un point à CHAQUE monture qui en profite (relevé en jeu : 10 toutes les 10 s au tier 1).
+ *
+ * Entre deux événements (une monture entre dans la plage ou en sort, une monture atteint le maximum, la jauge est
+ * vide), l'ensemble des montures qui profitent est fixe : soit la jauge est en pause, soit elle consomme et chacune
+ * gagne exactement les points consommés. L'arrivée au maximum de la plus proche est datée exactement avec
+ * `tempsPourConsommer` (tiers compris). Sans aucune valeur connue, le résultat est exactement celui de #73.
+ * Fonction pure.
+ */
+export function profitsJauge(
+  niveau: number,
+  plages: readonly Intervalle[],
+  valeurs: readonly (number | null)[],
+  p: ParamsJauge = {},
+  max = STAT_MAX,
+): ProfitsJauge {
+  const n = plages.length;
+  const valeur = (i: number): number | null => {
+    const v = valeurs[i];
+    return typeof v === "number" && Number.isFinite(v) ? v : null;
+  };
+  /* points qu'il reste à gagner à chaque monture (Infinity : valeur inconnue, elle ne s'arrête jamais) */
+  const reste = plages.map((_, i) => {
+    const v = valeur(i);
+    return v === null ? Infinity : Math.max(0, max - v);
+  });
+  const maximum: (number | null)[] = reste.map((r) => (r <= 0 ? 0 : null));
+  /* déjà au maximum : elle ne profite de rien (période vide) */
+  const fins = plages.map(([a, b], i) => (reste[i] <= 0 ? Math.min(b, Math.max(a, 0)) : b));
+
+  let L = bornerNiveau(niveau, p);
+  let t = 0;
+  const bornes = plages.flatMap(([a, b]) => [a, b]);
+  const aSuivre = () => reste.some((r, i) => r > 0 && Number.isFinite(r) && fins[i] > t);
+  /* chaque tour franchit un bord de plage, amène au moins une monture au maximum ou vide la jauge */
+  for (let tour = 0; tour < 3 * n + 4 && L > 1e-9 && aSuivre(); tour++) {
+    const profitent = plages.flatMap(([a, b], i) => (reste[i] > 0 && a <= t && t < b ? [i] : []));
+    const prochaine = Math.min(Infinity, ...bornes.filter((x) => x > t));
+    if (!profitent.length) {
+      if (!Number.isFinite(prochaine)) break;
+      t = prochaine;
+      continue;
+    }
+    /* points disponibles jusqu'au prochain bord (ou jusqu'à ce que la jauge soit vide) */
+    const dispo = Number.isFinite(prochaine) ? pointsConsommes(L, prochaine - t, p) : L;
+    const rMin = Math.min(...profitent.map((i) => reste[i]));
+    const atteint = rMin <= dispo + 1e-9;
+    const pts = atteint ? Math.min(rMin, L) : dispo;
+    t += atteint ? tempsPourConsommer(L, pts, p) : Number.isFinite(prochaine) ? prochaine - t : tempsVidage(L, p);
+    L = Math.max(0, L - pts);
+    for (const i of profitent) {
+      reste[i] = Math.max(0, reste[i] - pts);
+      if (reste[i] <= 1e-9) {
+        reste[i] = 0;
+        maximum[i] = t;
+        fins[i] = Math.min(fins[i], t);
+      }
+    }
+  }
+  const periodes = plages.map(([a], i): [number, number] => [a, fins[i]]);
+  return { periodes, actif: unionIntervalles(periodes), maximum };
+}
+
+/** Valeur (Endurance, Maturité ou Amour) d'une monture au bout de `secondes`, d'après `profitsJauge` : sa valeur de
+    départ plus les points consommés par la jauge pendant sa période, au plus `max`. null si la valeur est inconnue. */
+export function valeurApres(
+  niveau: number,
+  r: ProfitsJauge,
+  i: number,
+  depart: number | null,
+  secondes: number,
+  p: ParamsJauge = {},
+  max = STAT_MAX,
+): number | null {
+  if (depart === null || !Number.isFinite(depart)) return null;
+  const [a, b] = r.periodes[i] ?? [Infinity, Infinity];
+  const debut = Math.max(0, a);
+  const fin = Math.min(Math.max(0, fini(secondes, 0)), b);
+  const gain =
+    fin > debut ? pointsConsommesIntermittent(niveau, r.actif, fin, p) - pointsConsommesIntermittent(niveau, r.actif, debut, p) : 0;
+  return Math.min(max, Math.max(depart, depart + gain));
+}
+
 /** Sérénité d'une monture après `points` consommés dans le sens donné (bornée à ±5 000). */
 export function deplacer(serenite: number, sens: SensJauge | null, points: number): number {
   const s = bornerSerenite(serenite);

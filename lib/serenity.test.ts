@@ -14,7 +14,10 @@ import {
   tempsVidage,
   tempsVidageIntermittent,
   pointsConsommesIntermittent,
+  profitsJauge,
+  STAT_MAX,
   unionIntervalles,
+  valeurApres,
   dureeActive,
   vitesseAuNiveau,
   nomZone,
@@ -563,5 +566,106 @@ describe("zones Endurance et Amour (#63)", () => {
   it("montures toutes du mauvais côté : Endurance + Sérénité + → utiliser Sérénité −", () => {
     const plan = serenityPlan({ serenites: [500, 1500], sens: "+", niveauJauge: 10000, zone: ZONE_ENDURANCE });
     expect(plan.aRemplir).toMatchObject({ statut: "sensIncoherent", sensConseille: "-" });
+  });
+});
+
+describe("jauge d'élevage : les montures s'arrêtent au maximum (#77)", () => {
+  const I = Infinity;
+
+  it("maximum relevé en jeu : 20 000", () => {
+    expect(STAT_MAX).toBe(20000);
+  });
+
+  it("sans aucune valeur connue : exactement les plages de #73", () => {
+    const plages: [number, number][] = [
+      [-I, 1000],
+      [3000, 7000],
+    ];
+    const r = profitsJauge(3000, plages, [null, null]);
+    expect(r.periodes).toEqual(plages);
+    expect(r.actif).toEqual(unionIntervalles(plages));
+    expect(r.maximum).toEqual([null, null]);
+  });
+
+  it("une monture au maximum : la jauge s'arrête, le carburant reste", () => {
+    /* tier 1 (1 pt/s) : 19 000 + 1 000 points = 20 000 après 1 000 s */
+    const r = profitsJauge(3600, [[-I, I]], [19000]);
+    expect(r.maximum).toEqual([1000]);
+    expect(r.actif).toEqual([[-I, 1000]]);
+    expect(tempsVidageIntermittent(3600, r.actif)).toBe(Infinity);
+    expect(pointsConsommesIntermittent(3600, r.actif, 5000)).toBe(1000);
+    expect(valeurApres(3600, r, 0, 19000, 400)).toBe(19400);
+    expect(valeurApres(3600, r, 0, 19000, 5000)).toBe(STAT_MAX);
+  });
+
+  it("chaque point consommé profite à CHAQUE monture : la jauge s'arrête quand la dernière est au maximum", () => {
+    const r = profitsJauge(3600, [
+      [-I, I],
+      [-I, I],
+    ], [19000, 18000]);
+    expect(r.maximum).toEqual([1000, 2000]);
+    expect(r.actif).toEqual([[-I, 2000]]);
+    expect(valeurApres(3600, r, 1, 18000, 1500)).toBe(19500);
+    expect(valeurApres(3600, r, 0, 19000, 1500)).toBe(STAT_MAX);
+  });
+
+  it("le gain suit le débit de la jauge (tiers) pendant les périodes actives", () => {
+    /* 90 000 : 10 000 points au tier 2 (2 pts/s, 5 000 s), puis tier 1 */
+    const r = profitsJauge(90000, [
+      [-I, I],
+      [-I, I],
+    ], [15000, 5000]);
+    /* 5 000 points en 2 500 s ; 15 000 points : 10 000 en 5 000 s puis 5 000 en 5 000 s */
+    expect(r.maximum).toEqual([2500, 10000]);
+    expect(valeurApres(90000, r, 1, 5000, 2500)).toBe(10000);
+    expect(valeurApres(90000, r, 1, 5000, 7500)).toBe(17500);
+  });
+
+  it("la fin d'une période peut être l'arrivée au maximum : pause entre deux montures, union recalculée", () => {
+    /* M1 dans la plage jusqu'à 300 s (gagne 300, ne finit pas) ; M2 y entre à 600 s et arrive au maximum à 700 s */
+    const r = profitsJauge(3600, [
+      [-I, 300],
+      [600, I],
+    ], [19500, 19900]);
+    expect(r.maximum).toEqual([null, 700]);
+    expect(r.periodes).toEqual([
+      [-I, 300],
+      [600, 700],
+    ]);
+    expect(r.actif).toEqual([
+      [-I, 300],
+      [600, 700],
+    ]);
+    expect(valeurApres(3600, r, 0, 19500, 1000)).toBe(19800);
+    expect(pointsConsommesIntermittent(3600, r.actif, 1000)).toBe(400);
+  });
+
+  it("valeur inconnue pour une monture : elle garde la jauge active comme avant", () => {
+    const r = profitsJauge(3600, [
+      [-I, I],
+      [-I, 2500],
+    ], [19000, null]);
+    expect(r.maximum).toEqual([1000, null]);
+    expect(r.actif).toEqual([[-I, 2500]]);
+    expect(valeurApres(3600, r, 1, null, 100)).toBeNull();
+  });
+
+  it("déjà au maximum au départ : instant 0, elle ne fait pas consommer la jauge", () => {
+    const r = profitsJauge(3600, [[-I, I]], [STAT_MAX]);
+    expect(r.maximum).toEqual([0]);
+    expect(tempsVidageIntermittent(3600, r.actif)).toBe(Infinity);
+    expect(pointsConsommesIntermittent(3600, r.actif, 1000)).toBe(0);
+  });
+
+  it("jauge vide avant le maximum : jamais atteint ; pile au même moment : atteint", () => {
+    expect(profitsJauge(500, [[-I, I]], [19000]).maximum).toEqual([null]);
+    expect(profitsJauge(1000, [[-I, I]], [19000]).maximum).toEqual([1000]);
+    expect(profitsJauge(0, [[-I, I]], [19000]).maximum).toEqual([null]);
+  });
+
+  it("monture hors plage pour toujours : jamais au maximum, pas de boucle infinie", () => {
+    const r = profitsJauge(3600, [[I, I]], [19999]);
+    expect(r.maximum).toEqual([null]);
+    expect(r.actif).toEqual([]);
   });
 });

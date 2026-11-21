@@ -24,6 +24,8 @@ import {
   texteAlerteJauge,
   texteAutreJauge,
   texteEnclosPasPlein,
+  texteMaximum,
+  texteRetourSerenite,
   visageDe,
   type Objectif,
   type VueEnclos,
@@ -64,6 +66,10 @@ function evenementAgenda(enclos: Enclos, vue: VueEnclos, maintenantMs: number, m
   if (vue.alerte)
     lignes.push(`Une monture atteindra ${formatSerenite(vue.alerte.valeur)} : après, ${formatNombre(vue.alerte.gaspille)} points de jauge seraient gaspillés.`);
   if (vue.alerteJauge) lignes.push(texteAlerteJauge(vue.alerteJauge, maintenantMs));
+  const maximum = vue.maximum && texteMaximum(vue.maximum, maintenantMs);
+  if (maximum) lignes.push(maximum);
+  const serenite = texteRetourSerenite(vue, maintenantMs);
+  if (serenite) lignes.push(serenite);
   if (vue.conseil) lignes.push(vue.conseil);
   return {
     uid: `enclos-${vue.index + 1}@dragodindes-elevage`,
@@ -113,6 +119,9 @@ export function EnclosCard({
 }) {
   const nom = enclos.nom || `Enclos ${vue.index + 1}`;
   const pasPlein = texteEnclosPasPlein(enclos);
+  /* #77 : montures au maximum de la jauge d'élevage, et l'heure de sérénité quand le titre est une monture au maximum */
+  const auMaximum = vue.maximum ? texteMaximum(vue.maximum, maintenantMs) : null;
+  const retourSerenite = texteRetourSerenite(vue, maintenantMs);
   const [edition, setEdition] = useState(false);
   /* Rappel « dans la page » : seul état non persisté (il disparaît vraiment au rechargement). Agenda et
      Google Agenda sont mémorisés dans `enclos.rappel` et survivent au rechargement (#53). */
@@ -324,6 +333,11 @@ export function EnclosCard({
                     ? `${raison.charAt(0).toUpperCase()}${raison.slice(1)}.`
                     : `dans ${formatDuree(reste ?? 0)} · ${raison}`}
                 </p>
+                {retourSerenite && (
+                  <p className="mt-1 text-sm font-medium" data-testid="retour-serenite">
+                    {retourSerenite}
+                  </p>
+                )}
                 {/* sur place ou en retard : le conseil chiffré (état estimé maintenant) vient juste sous le titre (#64) */}
                 {(depasse || maintenant) && vue.conseil && (
                   <p className="mt-1 text-sm font-medium" data-testid="conseil-maintenant">
@@ -396,6 +410,11 @@ export function EnclosCard({
               <p className="flex items-start gap-1.5 text-muted-foreground" data-testid="autre-jauge">
                 <IconeJauge jauge={enclos.autreJauge} className="mt-0.5" />
                 <span>{texteAutreJauge(enclos.autreJauge, vue.consoAutre, maintenantMs)}</span>
+              </p>
+            )}
+            {auMaximum && (
+              <p className="text-muted-foreground" data-testid="maximum">
+                {auMaximum}
               </p>
             )}
             {pasPlein && (

@@ -11,7 +11,7 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 import { DEFAULT_CALC, parseKamas, type Prices } from "./calc";
 import {
   APP_ID, EXPORT_SCHEMA_VERSION, NB_ENCLOS, OBJECTIFS, PRICE_KEYS, SERVER_IDS, appDataSchema, calcSchema,
-  defaultAppData, enclosSchema, priceEntrySchema, rappelSchema, ancienRappelSchema, reglagesSchema, rappelTourneeSchema, type AppData, type CalcState,
+  defaultAppData, enclosSchema, monture, priceEntrySchema, rappelSchema, ancienRappelSchema, reglagesSchema, rappelTourneeSchema, type AppData, type CalcState,
   type Enclos, type MethodeRappel, type Objectif, type PriceKey, type PricesState, type Rappel, type RappelTournee, type AncienRappel, type ServerId, type ServerPrices,
 } from "./schema";
 
@@ -34,8 +34,11 @@ export const STORAGE_KEY = "dd-elevage-v3";
    enregistrés restent valides) ; la version empêche une appli v9, qui lirait « endurance » comme
    illisible (« aucun »), de réécrire les données (elle passe en lecture seule, `futureVersion`) ;
    11 : `reglages.rappelTournee` (rappel unique de la tournée, #65), null par défaut ;
-   12 : `calc.lieuVente` (taxe HDV, #66), « bonta-brakmar-autre » (2 %) par défaut. */
-export const STORAGE_VERSION = 12;
+   12 : `calc.lieuVente` (taxe HDV, #66), « bonta-brakmar-autre » (2 %) par défaut ;
+   13 : `enclos.montures[].stat` (Endurance / Maturité / Amour actuelle de la monture, 0 à 20 000, #77), facultatif :
+   absent = inconnu. Rien à transformer pour des données v12 (aucune monture n'a de valeur) ; la version fait passer une
+   appli v12 restée ouverte en lecture seule, sinon elle réécrirait les enclos en retirant ces valeurs. */
+export const STORAGE_VERSION = 13;
 export const LEGACY_V2_KEY = "dd-elevage-v2";
 export const LEGACY_V1_KEY = "dd-elevage-v1";
 
@@ -156,6 +159,26 @@ export function migrateLieuVente<T>(data: T): T {
   const calc = isObj(data.calc) ? data.calc : {};
   const r = calcSchema.shape.lieuVente.safeParse(calc.lieuVente);
   return { ...data, calc: { ...calc, lieuVente: r.success ? r.data : DEFAULT_CALC.lieuVente } } as T;
+}
+
+/* ---------- migration v12 → v13 : valeur de la jauge d'élevage par monture (#77) ----------
+   `enclos[].montures[].stat` : gardée si elle est valide (entier de 0 à 20 000, ou null), retirée sinon ; absente,
+   elle reste absente (valeur inconnue, calcul d'avant #77). Idempotent ; ne modifie pas son argument. */
+export function migrateStatsMontures<T>(data: T): T {
+  if (!isObj(data) || !Array.isArray(data.enclos)) return data;
+  const statValide = monture.shape.stat.unwrap();
+  const enclos = data.enclos.map((e: unknown) => {
+    if (!isObj(e) || !Array.isArray(e.montures)) return e;
+    const montures = e.montures.map((m: unknown) => {
+      if (!isObj(m) || !("stat" in m)) return m;
+      if (statValide.safeParse(m.stat).success) return m;
+      const { stat, ...reste } = m;
+      void stat;
+      return reste;
+    });
+    return { ...e, montures };
+  });
+  return { ...data, enclos } as T;
 }
 
 /* Le rappel est propre à l'appareil (agenda de cet appareil) : jamais exporté ni importé. */
@@ -596,7 +619,9 @@ export const useStore = create<AppStore>()(
       const v11 = version < 11 ? migrateRappelTournee(v9) : v9;
       /* v11 → v12 : lieu de vente par défaut s'il est absent. */
       const v12 = version < 12 ? migrateLieuVente(v11) : v11;
-      return v12 as AppStore;
+      /* v12 → v13 : valeur de la jauge d'élevage par monture, absente (inconnue) ; une valeur illisible est retirée. */
+      const v13 = version < 13 ? migrateStatsMontures(v12) : v12;
+      return v13 as AppStore;
     },
     /* Toujours nettoyer ce qui vient du disque, même à version égale. */
     merge: (persisted, current) => ({ ...current, ...sanitize(persisted) }),

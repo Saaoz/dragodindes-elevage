@@ -976,3 +976,64 @@ test("enclos pas plein (#79) : ligne discrète avec une jauge et moins de 10 mon
   await expect(carte2.getByText(/Aucune jauge de sérénité active/)).toHaveCount(1);
   await expect(carte2.getByTestId("enclos-pas-plein")).toHaveCount(0);
 });
+
+test("monture au maximum (#77) : valeur facultative par monture, « sors-la », jauge en pause ; sans valeur rien ne change", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  await carte.getByRole("button", { name: "Saisir cet enclos" }).click();
+  await carte.getByLabel("Sérénité exacte de la monture 1").fill("-3000");
+  /* pas de champ tant qu'aucune jauge d'élevage n'est choisie, ni pour l'Expérience de monture */
+  await expect(carte.getByLabel(/actuelle de la monture 1/)).toHaveCount(0);
+  const autre = carte.getByRole("group", { name: "Autre jauge" });
+  await autre.getByRole("button", { name: "Expérience de monture" }).click();
+  await expect(carte.getByLabel(/actuelle de la monture 1/)).toHaveCount(0);
+  await autre.getByRole("button", { name: "Endurance" }).click();
+  await carte.getByRole("button", { name: "Ajouter une monture" }).click();
+  await carte.getByLabel("Sérénité exacte de la monture 2").fill("-3000");
+  /* clavier texte : « 18k » se tape et se lit comme 18 000 */
+  const stat1 = carte.getByLabel(/^Endurance actuelle de la monture 1/);
+  await expect(stat1).toHaveAttribute("inputmode", "text");
+  await stat1.fill("19000");
+  await carte.getByLabel(/^Endurance actuelle de la monture 2/).fill("18k");
+  await carte.getByPlaceholder("ex. 120k").fill("90k");
+  await carte.getByRole("button", { name: /Enregistrer/ }).click();
+
+  /* 90 000 = tier 2 (2 pts/s) : M1 au maximum après 500 s (21 h 08), M2 après 1 000 s (21 h 16) */
+  await expect(carte.getByText(/Reviens avant 21\sh\s08/)).toBeVisible();
+  await expect(carte.getByText(/la monture 1 atteint le maximum d’Endurance\s: sors-la/)).toBeVisible();
+  await expect(carte).toHaveAttribute("data-urgent", "false");
+  await expect(carte.getByTestId("autre-jauge")).toHaveText(
+    /^Jauge Endurance en pause à partir de 21\sh\s16\s: toutes les montures seront au maximum\.$/,
+  );
+  /* l'heure de retour du titre n'est pas répétée */
+  await expect(carte.getByTestId("maximum")).toHaveCount(0);
+  await expect(carte.getByText(/21\sh\s08/)).toHaveCount(1);
+
+  await page.clock.fastForward(20 * 60_000);
+  await expect(carte.getByTestId("maximum")).toHaveText(/^Toutes les montures sont au maximum d’Endurance depuis 21\sh\s16\s: sors-les\.$/);
+  await expect(carte.getByTestId("autre-jauge")).toHaveText(/^Jauge Endurance en pause depuis 21\sh\s16\s: toutes les montures sont au maximum\.$/);
+
+  /* persistance, puis « Je quitte l'enclos » : valeurs estimées maintenant, carburant restant */
+  await page.reload();
+  await carte.getByRole("button", { name: "Je quitte l’enclos" }).click();
+  await expect(carte.getByLabel(/^Endurance actuelle de la monture 1/)).toHaveValue("20000");
+  await expect(carte.getByLabel(/^Endurance actuelle de la monture 2/)).toHaveValue("20000");
+  await expect(carte.getByPlaceholder("ex. 120k")).toHaveValue("88000");
+  /* valeur hors limites : refusée */
+  await carte.getByLabel(/^Endurance actuelle de la monture 1/).fill("25000");
+  await carte.getByRole("button", { name: /Enregistrer/ }).click();
+  await expect(carte.getByRole("alert")).toContainText("Monture 1 : l’Endurance va de 0 à 20");
+  await carte.getByRole("button", { name: "Annuler" }).click();
+
+  /* même saisie sans valeur : comme avant #77 (pas d'heure de retour, la jauge se vide sans arrêt) */
+  const carte2 = page.getByRole("region", { name: "Enclos 2" });
+  await carte2.getByRole("button", { name: "Saisir cet enclos" }).click();
+  await carte2.getByLabel("Sérénité exacte de la monture 1").fill("-3000");
+  await carte2.getByRole("group", { name: "Autre jauge" }).getByRole("button", { name: "Endurance" }).click();
+  await carte2.getByPlaceholder("ex. 120k").fill("90k");
+  await carte2.getByRole("button", { name: /Enregistrer/ }).click();
+  await expect(carte2.getByText(/Aucune jauge de sérénité active/)).toHaveCount(1);
+  await expect(carte2.getByTestId("autre-jauge")).toHaveText(/^Jauge Endurance vide à /);
+  await expect(carte2.getByTestId("maximum")).toHaveCount(0);
+});

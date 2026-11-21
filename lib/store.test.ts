@@ -4,7 +4,7 @@ import fixture from "./__fixtures__/export-v2.json";
 import { PRICE_KEYS, SERVER_IDS, defaultAppData, type PriceKey, type ServerId } from "./schema";
 import { matrice } from "./rentabilite";
 import {
-  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateLieuVente, migrateMethodeRappel, migrateRappelTournee, migrateOptimakina, migrateRappels, migrateRappelsAgenda, migrateV1, parseExport, priceCount, syncOnglets,
+  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateLieuVente, migrateMethodeRappel, migrateStatsMontures, migrateRappelTournee, migrateOptimakina, migrateRappels, migrateRappelsAgenda, migrateV1, parseExport, priceCount, syncOnglets,
   parsePaste, priceValues, resetDemo, useDemoStore, useStore,
 } from "./store";
 
@@ -1066,5 +1066,86 @@ describe("version 12 (#66) : lieu de vente (taxe HDV)", () => {
     expect(p.ok && p.data.calc.lieuVente).toBe("direct");
     const ancien = parseExport(fixtureText);
     expect(ancien.ok && ancien.data.calc.lieuVente).toBe("bonta-brakmar-autre");
+  });
+});
+
+describe("version 13 (#77) : valeur de la jauge d'élevage par monture", () => {
+  const avecStats = () => {
+    const e = defaultAppData().enclos;
+    e[0] = {
+      ...e[0],
+      montures: [
+        { nom: "", serenite: -3000, stat: 12000 },
+        { nom: "", serenite: -2000 },
+      ],
+      autreJauge: "Endurance",
+      niveauAutre: 90000,
+      saisieLe: 1_700_000_000_000,
+    };
+    return e;
+  };
+
+  it("STORAGE_VERSION >= 13 ; l'export reste en version 5", () => {
+    expect(STORAGE_VERSION).toBeGreaterThanOrEqual(13);
+    expect(JSON.parse(st().exportJSON()).schemaVersion).toBe(5);
+  });
+
+  it("migrateStatsMontures : valide gardée, illisible retirée, absente laissée absente, idempotent, argument intact", () => {
+    const brut = {
+      enclos: [{ montures: [{ serenite: 1, stat: 12000 }, { serenite: 2, stat: 25000 }, { serenite: 3, stat: "x" }, { serenite: 4 }, { serenite: 5, stat: null }] }],
+    };
+    const copie = JSON.parse(JSON.stringify(brut));
+    const m = migrateStatsMontures(brut);
+    expect(m.enclos[0].montures).toEqual([{ serenite: 1, stat: 12000 }, { serenite: 2 }, { serenite: 3 }, { serenite: 4 }, { serenite: 5, stat: null }]);
+    expect(brut).toEqual(copie);
+    expect(migrateStatsMontures(m)).toEqual(m);
+    expect(migrateStatsMontures({ server: "Imagiro" })).toEqual({ server: "Imagiro" });
+  });
+
+  it("un état v12 (sans valeur) se recharge à l'identique ; une valeur illisible ne fait perdre ni la monture ni l'enclos", async () => {
+    const enclos = defaultAppData().enclos;
+    enclos[0] = { ...enclos[0], montures: [{ nom: "", serenite: -3000 }], autreJauge: "Endurance", niveauAutre: 90000, saisieLe: 1 };
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 12, state: { ...fixture.data, enclos } }));
+    await useStore.persist.rehydrate();
+    expect(st().enclos[0].montures).toEqual([{ nom: "", serenite: -3000 }]);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(STORAGE_VERSION);
+
+    const casse = JSON.parse(JSON.stringify(enclos));
+    casse[0].montures[0].stat = 99999;
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: STORAGE_VERSION, state: { ...fixture.data, enclos: casse } }));
+    await useStore.persist.rehydrate();
+    expect(st().enclos[0].montures).toEqual([{ nom: "", serenite: -3000 }]);
+    expect(st().enclos[0].niveauAutre).toBe(90000);
+  });
+
+  it("la valeur est persistée et rechargée", async () => {
+    expect(st().setEnclos(0, avecStats()[0])).toBe(true);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).state.enclos[0].montures[0].stat).toBe(12000);
+    await useStore.persist.rehydrate();
+    expect(st().enclos[0].montures).toEqual([
+      { nom: "", serenite: -3000, stat: 12000 },
+      { nom: "", serenite: -2000 },
+    ]);
+  });
+
+  it("une appli plus ancienne (v12) passe en lecture seule au lieu d'effacer les valeurs", async () => {
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: STORAGE_VERSION + 1, state: { ...fixture.data, enclos: avecStats() } }));
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(true);
+  });
+
+  it("export / import : la valeur est exportée et réimportée ; un ancien export sans elle s'importe", () => {
+    st().setEnclos(0, avecStats()[0]);
+    const json = st().exportJSON();
+    expect(JSON.parse(json).data.enclos[0].montures[0].stat).toBe(12000);
+    const p = parseExport(json);
+    expect(p.ok && p.data.enclos[0].montures[0].stat).toBe(12000);
+    const ancien = parseExport(fixtureText);
+    expect(ancien.ok && ancien.data.enclos.every((e) => e.montures.every((m) => m.stat === undefined))).toBe(true);
+    /* valeur illisible dans un fichier : l'import réussit, la valeur est ignorée */
+    const brut = JSON.parse(json);
+    brut.data.enclos[0].montures[0].stat = -5;
+    const p2 = parseExport(JSON.stringify(brut));
+    expect(p2.ok && p2.data.enclos[0].montures[0]).toEqual({ nom: "", serenite: -3000 });
   });
 });
