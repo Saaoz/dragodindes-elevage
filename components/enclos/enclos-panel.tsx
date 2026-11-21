@@ -9,7 +9,7 @@ import { Choix } from "@/components/commun/choix";
 import { EnTete, Page } from "@/components/commun/en-tete";
 import { annonceEnregistre, formatCompteARebours, trierParUrgence, vueEnclos, type Objectif } from "@/lib/enclos";
 import { enclosSchema, MARGES_RAPPEL_MIN, type Enclos } from "@/lib/schema";
-import { methodesDisponibles, type MethodeRappel } from "@/lib/rappel";
+import { methodesDisponibles } from "@/lib/rappel";
 
 const TITRE = "Mes enclos";
 
