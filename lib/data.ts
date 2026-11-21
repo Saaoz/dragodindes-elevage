@@ -100,13 +100,13 @@ export const MAKINAS = [
 export const CAPACITES = [
   {
     nom: "Amoureuse",
-    effet: "Gain d'Amour doublé (jauge rouge de l'enclos).",
+    effet: "Gain d'Amour doublé.",
     obtention: "Aléatoire à la naissance, 8 % ; 100 % des bébés nés le 10 juillet (Almanax, Jihelair).",
     conditions: "Ne s'hérite pas. Perdue au clonage.",
   },
   {
     nom: "Endurante",
-    effet: "Gain d'Endurance doublé (jauge jaune).",
+    effet: "Gain d'Endurance doublé.",
     obtention: "Aléatoire à la naissance, 8 % ; 100 % des bébés nés le 10 février (Almanax, Meash).",
     conditions: "Ne s'hérite pas. Perdue au clonage.",
   },
