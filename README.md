@@ -57,7 +57,7 @@ installé par `npm install` via le script `prepare`). Playwright utilise Chromiu
 
 ## Déploiement et appli installable (PWA)
 
-- **URL** : <https://dragodindes-elevage.vercel.app> (Vercel, offre Hobby). Le dépôt est relié par l'intégration Git de
+- **URL** : <https://elevage-dofus.saaoz.fr> (Vercel, offre Hobby ; l'ancienne adresse <https://dragodindes-elevage.vercel.app> marche toujours). Le dépôt est relié par l'intégration Git de
   Vercel : `main` = production, une prévisualisation par pull request. Les builds tournent chez Vercel, pas sur GitHub
   Actions ; les tests sont lancés en local (hook `pre-push`). Aucune variable d'environnement n'est nécessaire.
 - **Installer sur téléphone** : Android (Chrome) : bouton « Installer l'appli » de la page d'accueil, ou menu → Installer
