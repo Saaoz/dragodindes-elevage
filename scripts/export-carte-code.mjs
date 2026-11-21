@@ -72,8 +72,9 @@ function couper(texte, max) {
 const moyenne = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
 
 export function exporter(graphe) {
+  /* Un fichier supprimé depuis l'analyse n'apparaît plus, sans avoir à relancer le plugin. */
   const fichiersGraphe = graphe.nodes
-    .filter((n) => TYPES_FICHIER.has(n.type) && n.filePath)
+    .filter((n) => TYPES_FICHIER.has(n.type) && n.filePath && existsSync(join(RACINE, n.filePath)))
     .sort((a, b) => a.filePath.localeCompare(b.filePath));
   const parId = new Map(fichiersGraphe.map((n) => [n.id, n]));
 
