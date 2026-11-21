@@ -13,8 +13,11 @@ import {
   apercuSaisie,
   changerAutreJauge,
   enclosDeBrouillon,
+  estJaugeElevage,
+  formatNombre,
   formatSerenite,
   MAX_MONTURES,
+  NOM_JAUGE,
   OPTIONS_OBJECTIF,
   parseNombre,
   VISAGES,
@@ -22,6 +25,7 @@ import {
   type Brouillon,
 } from "@/lib/enclos";
 import { AUTRES_JAUGES, type Enclos } from "@/lib/schema";
+import { STAT_MAX } from "@/lib/serenity";
 import { cn } from "@/lib/utils";
 
 /* Clavier texte (et non pavé numérique) : il faut pouvoir taper « − », « - », « k ». Le parsing accepte ces formes. */
@@ -77,6 +81,10 @@ export function EnclosForm({
 
   const setSerenite = (i: number, v: string) =>
     setB((p) => ({ ...p, serenites: p.serenites.map((x, k) => (k === i ? v : x)) }));
+  /* valeur de la jauge d'élevage (#77), alignée sur les sérénités */
+  const stats = b.serenites.map((_, i) => b.stats?.[i] ?? "");
+  const setStat = (i: number, v: string) => setB((p) => ({ ...p, stats: p.serenites.map((_, k) => (k === i ? v : (p.stats?.[k] ?? ""))) }));
+  const jaugeStat = estJaugeElevage(b.autre) ? b.autre : null;
 
   const enregistrer = (ev: React.FormEvent) => {
     ev.preventDefault();
@@ -101,51 +109,78 @@ export function EnclosForm({
 
       <fieldset className="flex flex-col gap-2.5">
         <legend className="mb-1 text-sm font-medium">Sérénité de chaque monture</legend>
-        <p className="text-xs text-muted-foreground">Touche le visage affiché en jeu, ou tape la valeur exacte.</p>
+        <p className="text-xs text-muted-foreground">
+          Touche le visage affiché en jeu, ou tape la valeur exacte.
+          {jaugeStat &&
+            ` Facultatif : ${NOM_JAUGE[jaugeStat].nom} actuelle de chaque monture (0 à ${formatNombre(STAT_MAX)}), pour savoir quand elle atteint le maximum.`}
+        </p>
         {b.serenites.map((txt, i) => {
           const n = parseNombre(txt);
           return (
-            <div key={i} className="flex items-center gap-1.5 sm:gap-2" role="group" aria-label={`Monture ${i + 1}`}>
-              <span className="w-5 shrink-0 text-right text-sm font-medium text-muted-foreground tabular-nums">{i + 1}</span>
-              <div className="flex shrink-0 gap-0.5 sm:gap-1">
-                {VISAGES.map((v) => {
-                  const on = n === v.valeur;
-                  return (
-                    <button
-                      key={v.id}
-                      type="button"
-                      title={`${v.nom} : ${v.effet} (${formatSerenite(v.valeur)})`}
-                      aria-label={`Monture ${i + 1} : visage ${v.nom.toLowerCase()} (${v.effet})`}
-                      aria-pressed={on}
-                      onClick={() => setSerenite(i, String(v.valeur))}
-                      className={cn(
-                        "flex size-9 items-center justify-center rounded-full sm:size-10 outline-none transition focus-visible:ring-3 focus-visible:ring-ring/60",
-                        on ? cn("bg-muted ring-3", ANNEAU_VISAGE[v.id]) : "opacity-80 hover:bg-muted hover:opacity-100",
-                      )}
-                    >
-                      <VisageIcone id={v.id} className="size-7" />
-                    </button>
-                  );
-                })}
+            <div key={i} className="flex flex-col gap-1" role="group" aria-label={`Monture ${i + 1}`}>
+              <div className="flex items-center gap-1.5 sm:gap-2">
+                <span className="w-5 shrink-0 text-right text-sm font-medium text-muted-foreground tabular-nums">{i + 1}</span>
+                <div className="flex shrink-0 gap-0.5 sm:gap-1">
+                  {VISAGES.map((v) => {
+                    const on = n === v.valeur;
+                    return (
+                      <button
+                        key={v.id}
+                        type="button"
+                        title={`${v.nom} : ${v.effet} (${formatSerenite(v.valeur)})`}
+                        aria-label={`Monture ${i + 1} : visage ${v.nom.toLowerCase()} (${v.effet})`}
+                        aria-pressed={on}
+                        onClick={() => setSerenite(i, String(v.valeur))}
+                        className={cn(
+                          "flex size-9 items-center justify-center rounded-full sm:size-10 outline-none transition focus-visible:ring-3 focus-visible:ring-ring/60",
+                          on ? cn("bg-muted ring-3", ANNEAU_VISAGE[v.id]) : "opacity-80 hover:bg-muted hover:opacity-100",
+                        )}
+                      >
+                        <VisageIcone id={v.id} className="size-7" />
+                      </button>
+                    );
+                  })}
+                </div>
+                <input
+                  className={cn(champ, "w-0 min-w-16 flex-1 sm:w-28 sm:flex-none")}
+                  {...SAISIE_TEXTE}
+                  placeholder="ex. -3000"
+                  aria-label={`Sérénité exacte de la monture ${i + 1}`}
+                  value={txt}
+                  onChange={(e) => setSerenite(i, e.target.value)}
+                />
+                {b.serenites.length > 1 && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon-lg"
+                    aria-label={`Retirer la monture ${i + 1}`}
+                    onClick={() =>
+                      setB((p) => ({
+                        ...p,
+                        serenites: p.serenites.filter((_, k) => k !== i),
+                        stats: p.serenites.map((_, k) => p.stats?.[k] ?? "").filter((_, k) => k !== i),
+                      }))
+                    }
+                  >
+                    <X aria-hidden />
+                  </Button>
+                )}
               </div>
-              <input
-                className={cn(champ, "w-0 min-w-16 flex-1 sm:w-28 sm:flex-none")}
-                {...SAISIE_TEXTE}
-                placeholder="ex. -3000"
-                aria-label={`Sérénité exacte de la monture ${i + 1}`}
-                value={txt}
-                onChange={(e) => setSerenite(i, e.target.value)}
-              />
-              {b.serenites.length > 1 && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon-lg"
-                  aria-label={`Retirer la monture ${i + 1}`}
-                  onClick={() => setB((p) => ({ ...p, serenites: p.serenites.filter((_, k) => k !== i) }))}
-                >
-                  <X aria-hidden />
-                </Button>
+              {jaugeStat && (
+                /* #77 : à côté de sa sérénité, la valeur actuelle de la jauge d'élevage (facultative, « 12k » accepté) */
+                <label className="flex items-center gap-2 pl-6.5 text-sm text-muted-foreground sm:pl-7">
+                  <span className="shrink-0">{jaugeStat}</span>
+                  <input
+                    className={cn(champ, "w-0 min-w-20 flex-1 sm:w-28 sm:flex-none")}
+                    {...SAISIE_TEXTE}
+                    placeholder="ex. 12k"
+                    aria-label={`${jaugeStat} actuelle de la monture ${i + 1} (facultatif, 0 à ${formatNombre(STAT_MAX)})`}
+                    value={stats[i]}
+                    onChange={(e) => setStat(i, e.target.value)}
+                  />
+                  <span className="shrink-0 whitespace-nowrap">/ {formatNombre(STAT_MAX)}</span>
+                </label>
               )}
             </div>
           );
@@ -170,7 +205,9 @@ export function EnclosForm({
             type="button"
             variant="outline"
             className="self-start"
-            onClick={() => setB((p) => ({ ...p, serenites: [...p.serenites, ""] }))}
+            onClick={() =>
+              setB((p) => ({ ...p, serenites: [...p.serenites, ""], stats: [...p.serenites.map((_, k) => p.stats?.[k] ?? ""), ""] }))
+            }
           >
             <Plus aria-hidden /> Ajouter une monture ({b.serenites.length}/{MAX_MONTURES})
           </Button>

@@ -36,6 +36,8 @@ import {
   parseNombre,
   remplacerEnclos,
   texteEnclosPasPlein,
+  texteMaximum,
+  texteRetourSerenite,
   trierParUrgence,
   visageDe,
   VISAGES,
@@ -1140,5 +1142,192 @@ describe("enclos pas plein (#79) : la jauge consomme autant avec 10 montures", (
 
   it("enclos non saisi : aucune ligne", () => {
     expect(texteEnclosPasPlein(enclosSchema.parse({ montures: [{ serenite: 0 }], jaugeSerenite: "+", niveauSerenite: 100 }))).toBeNull();
+  });
+});
+
+describe("monture au maximum d'Endurance, de Maturité ou d'Amour (#77)", () => {
+  const S = 1000;
+  const enclos = (
+    serenites: number[],
+    stats: (number | null | undefined)[],
+    sens: "+" | "-" | null,
+    niveau: number,
+    autreJauge: string,
+    niveauAutre: number,
+    objectif = "endurance",
+  ) =>
+    enclosSchema.parse({
+      nom: "A",
+      montures: serenites.map((serenite, i) => (stats[i] === undefined ? { serenite } : { serenite, stat: stats[i] })),
+      jaugeSerenite: sens,
+      niveauSerenite: niveau,
+      autreJauge,
+      niveauAutre,
+      saisieLe: T0,
+      objectif,
+    });
+  /* sans jauge de sérénité, en Endurance pour toujours ; 90 000 = tier 2 (2 pts/s) : M1 au maximum après 500 s
+     (21 h 08), M2 après 1 000 s (21 h 16) ; la jauge s'arrête alors avec 88 000 points */
+  const deux = enclos([-3000, -3000], [19000, 18000], null, 0, "Endurance", 90000);
+
+  it("sans valeur saisie : rien ne change (même vue, aucun événement « maximum »)", () => {
+    const sans = enclos([-3000, -3000], [undefined, undefined], null, 0, "Endurance", 90000);
+    const avecNull = enclos([-3000, -3000], [null, null], null, 0, "Endurance", 90000);
+    for (const t of [T0, T0 + 600 * S, T0 + 50 * 3600 * S]) {
+      const v = vueEnclos(sans, 0, t);
+      expect(v.retour).toBeNull();
+      expect(v.maximum).toBeNull();
+      expect(vueEnclos(avecNull, 0, t)).toEqual(v);
+    }
+    expect(vueEnclos(sans, 0, T0).autreVideMs).toBe(T0 + (10000 / 2 + 80000) * S);
+    expect(sans.montures[0]).toEqual({ nom: "", serenite: -3000 });
+  });
+
+  it("modèle : la jauge consomme tant qu'une monture en profite, puis s'arrête quand toutes sont au maximum", () => {
+    const c = consoAutreJauge(deux, T0)!;
+    expect(c.maximumMs).toEqual([T0 + 500 * S, T0 + 1000 * S]);
+    expect(c).toMatchObject({ videMs: null, enPause: false, pauseMs: T0 + 1000 * S, valeurs: [19000, 18000] });
+    expect(consoAutreJauge(deux, T0 + 750 * S)).toMatchObject({ valeurs: [20000, 19500], niveau: 88500 });
+    expect(consoAutreJauge(deux, T0 + 5000 * S)).toMatchObject({ enPause: true, valeurs: [20000, 20000], niveau: 88000 });
+    expect(vueEnclos(deux, 0, T0).autreVideMs).toBeNull();
+  });
+
+  it("ligne de la jauge : « en pause : toutes les montures sont au maximum »", () => {
+    const ligne = (t: number) => ss(texteAutreJauge("Endurance", consoAutreJauge(deux, t)!, t));
+    expect(ligne(T0)).toBe("Jauge Endurance en pause à partir de 21 h 16 : toutes les montures seront au maximum.");
+    expect(ligne(T0 + 2000 * S)).toBe("Jauge Endurance en pause depuis 21 h 16 : toutes les montures sont au maximum.");
+    /* M1 au maximum à 500 s ; M2 (−2 000, Sérénité +) sort de la plage à 1 999 s */
+    const mixte = enclos([-3000, -2000], [19500, undefined], "+", 60000, "Endurance", 3600);
+    expect(ss(texteAutreJauge("Endurance", consoAutreJauge(mixte, T0 + 3000 * S)!, T0 + 3000 * S))).toBe(
+      "Jauge Endurance en pause depuis 21 h 33 : la monture 1 est au maximum, aucune autre en sérénité négative.",
+    );
+  });
+
+  it("carte : l'heure de retour est la première monture au maximum ; « sors-la »", () => {
+    const v = vueEnclos(deux, 0, T0);
+    expect(v.retour).toMatchObject({ quandMs: T0 + 500 * S, evenement: { type: "maximum", jauge: "Endurance", montures: [0] } });
+    expect(v.aFaireMaintenant).toBe(false);
+    expect(ss(raisonRetour(v, T0)!)).toBe("la monture 1 atteint le maximum d’Endurance : sors-la");
+    /* le titre porte déjà l'heure : la ligne ne la répète pas */
+    expect(v.maximum).toMatchObject({ atteintes: [], prochaines: [0], surRetour: true });
+    expect(texteMaximum(v.maximum!, T0)).toBeNull();
+    expect(estUrgent(v, T0 + 400 * S)).toBe(false);
+    expect(ss(annonceEnregistre(v, "A", T0))).toBe("A enregistré : reviens avant 21 h 08.");
+
+    const apres = vueEnclos(deux, 0, T0 + 600 * S);
+    expect(apres.retardS).toBe(100);
+    expect(ss(raisonRetour(apres, T0 + 600 * S)!)).toBe("la monture 1 est au maximum d’Endurance depuis 21 h 08 : sors-la");
+    expect(ss(texteMaximum(apres.maximum!, T0 + 600 * S)!)).toBe(
+      "Monture 1 au maximum d’Endurance depuis 21 h 08 : sors-la. Monture 2 au maximum d’Endurance vers 21 h 16 : sors-la.",
+    );
+    expect(estUrgent(apres, T0 + 600 * S)).toBe(false);
+    const fin = vueEnclos(deux, 0, T0 + 2000 * S);
+    expect(ss(texteMaximum(fin.maximum!, T0 + 2000 * S)!)).toBe("Toutes les montures sont au maximum d’Endurance depuis 21 h 16 : sors-les.");
+  });
+
+  it("plusieurs montures au maximum en même temps", () => {
+    const e = enclos([0, 0, 0], [19000, 19000, 10000], null, 0, "Amour", 3600, "amour");
+    const v = vueEnclos(e, 0, T0);
+    expect(ss(raisonRetour(v, T0)!)).toBe("les montures 1 et 2 atteignent le maximum d’Amour : sors-les");
+    const tous = enclos([0, 0], [19000, 19000], null, 0, "Maturité", 3600, "maturite");
+    expect(ss(raisonRetour(vueEnclos(tous, 0, T0), T0)!)).toBe("toutes les montures atteignent le maximum de Maturité : sors-les");
+  });
+
+  it("déjà au maximum à la saisie : à faire maintenant", () => {
+    const e = enclos([-3000, -3000], [20000, 10000], null, 0, "Endurance", 90000);
+    const v = vueEnclos(e, 0, T0);
+    expect(v.aFaireMaintenant).toBe(true);
+    expect(ss(raisonRetour(v, T0)!)).toBe("la monture 1 est au maximum d’Endurance : sors-la");
+    expect(ss(annonceEnregistre(v, "A", T0))).toBe("A enregistré : à faire maintenant. La monture 1 est au maximum d’Endurance : sors-la.");
+    expect(ss(texteMaximum(v.maximum!, T0)!)).toBe(
+      "Monture 1 au maximum d’Endurance : sors-la. Monture 2 au maximum d’Endurance vers 22 h 23 : sors-la.",
+    );
+  });
+
+  it("une urgence de sérénité plus proche garde l'heure de retour", () => {
+    /* −4 900 en Sérénité − : −5 000 après 100 s ; maximum après 1 000 s */
+    const e = enclos([-4900], [19000], "-", 60000, "Endurance", 3600);
+    const v = vueEnclos(e, 0, T0);
+    expect(v.retour?.evenement.type).toBe("premiereBorne");
+    expect(v.retour).toEqual(v.retourSerenite);
+    expect(texteRetourSerenite(v, T0)).toBeNull();
+    expect(ss(texteMaximum(v.maximum!, T0)!)).toBe("Monture 1 au maximum d’Endurance vers 21 h 16 : sors-la.");
+  });
+
+  it("monture au maximum avant la sérénité : retour plus tôt, la sérénité reste écrite et décide du rouge", () => {
+    /* −3 000 en Sérénité − : −5 000 après 2 000 s (21 h 33) ; 19 500 au tier 1 : maximum après 500 s (21 h 08) */
+    const e = enclos([-3000], [19500], "-", 60000, "Endurance", 3600);
+    const sans = enclos([-3000], [undefined], "-", 60000, "Endurance", 3600);
+    const v = vueEnclos(e, 0, T0);
+    expect(v.retour).toMatchObject({ quandMs: T0 + 500 * S, evenement: { type: "maximum" } });
+    expect(v.retourSerenite).toEqual(vueEnclos(sans, 0, T0).retour);
+    /* le conseil de sérénité est celui d'avant #77 */
+    expect(v.conseil).toBe(vueEnclos(sans, 0, T0).conseil);
+    expect(ss(texteRetourSerenite(v, T0)!)).toBe("Sérénité : reviens avant 21 h 33 au plus tard (une monture atteint ±5 000).");
+    expect(estUrgent(v, T0)).toBe(false);
+    /* à 21 h 05, la sérénité est à moins de 30 min : rouge */
+    expect(estUrgent(vueEnclos(e, 0, T0 + 300 * S), T0 + 300 * S)).toBe(true);
+    const tard = T0 + 2100 * S;
+    expect(ss(texteRetourSerenite(vueEnclos(e, 0, tard), tard)!)).toMatch(/^Sérénité : la monture 1 est à −5 000 depuis 21 h 33/);
+  });
+
+  it("le maximum entre dans la tournée", () => {
+    const a = vueEnclos(deux, 0, T0);
+    /* +1 500 en Sérénité + : sort de la Maturité après 500 s, comme M1 */
+    const b = vueEnclos({ ...enclosTest([1500], 200000), objectif: "maturite" }, 1, T0);
+    expect(b.retour!.quandMs).toBeLessThan(T0 + 15 * 60 * S);
+    const tournees = grouperTournees([a, b], T0);
+    expect(tournees).toHaveLength(1);
+    expect(tournees[0].membres.map((v) => v.index).sort()).toEqual([0, 1]);
+  });
+
+  it("alerte « ne monte plus » : une monture déjà au maximum qui sort de la plage n'est pas signalée", () => {
+    /* −2 000 en Sérénité + : sort de l'Endurance à 1 999 s ; 19 500 au tier 2 : maximum après 250 s */
+    const sans = enclos([-2000], [undefined], "+", 60000, "Endurance", 90000);
+    expect(vueEnclos(sans, 0, T0).alerteJauge).not.toBeNull();
+    expect(vueEnclos(enclos([-2000], [19500], "+", 60000, "Endurance", 90000), 0, T0).alerteJauge).toBeNull();
+  });
+
+  it("saisie : valeur facultative par monture, « 12k » accepté, bornée à 0…20 000, seulement pour Endurance / Maturité / Amour", () => {
+    const b = {
+      nom: "",
+      serenites: ["-3000", "-2000", ""],
+      stats: ["12k", "", "5000"],
+      sens: null,
+      niveau: "",
+      autre: "Endurance" as const,
+      niveauAutre: "90000",
+      objectif: "endurance" as const,
+    };
+    const r = enclosDeBrouillon(b, T0);
+    expect(r.ok && r.enclos.montures).toEqual([
+      { nom: "", serenite: -3000, stat: 12000 },
+      { nom: "", serenite: -2000 },
+    ]);
+    const trop = enclosDeBrouillon({ ...b, stats: ["25000", "", ""] }, T0);
+    expect(!trop.ok && trop.erreurs.map(ss)).toEqual(["Monture 1 : l’Endurance va de 0 à 20 000 (ex. 12000 ou 12k)."]);
+    const xp = enclosDeBrouillon({ ...b, autre: "Expérience de monture" }, T0);
+    expect(xp.ok && xp.enclos.montures.every((m) => m.stat === undefined)).toBe(true);
+    const sansStats = enclosDeBrouillon({ ...b, stats: undefined }, T0);
+    expect(sansStats.ok && sansStats.enclos.montures).toEqual([
+      { nom: "", serenite: -3000 },
+      { nom: "", serenite: -2000 },
+    ]);
+  });
+
+  it("changer de jauge d'élevage efface les valeurs tapées", () => {
+    const b = brouillonDe(deux);
+    expect(b.stats).toEqual(["19000", "18000"]);
+    expect(changerAutreJauge(b, "Endurance", false).stats).toEqual(["19000", "18000"]);
+    expect(changerAutreJauge(b, "Amour", false).stats).toEqual(["", ""]);
+  });
+
+  it("« Je quitte l'enclos » : la valeur estimée maintenant est proposée", () => {
+    const t = T0 + 750 * S;
+    const b = brouillonDe(deux, vueEnclos(deux, 0, t).plan.etat);
+    expect(b.stats).toEqual(["20000", "19500"]);
+    expect(b.niveauAutre).toBe("88500");
+    const sans = enclos([-3000], [undefined], null, 0, "Endurance", 90000);
+    expect(brouillonDe(sans, vueEnclos(sans, 0, t).plan.etat).stats).toEqual([""]);
   });
 });

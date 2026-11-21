@@ -167,9 +167,8 @@ sérénité garde son modèle (elle se vide sans arrêt, voir hypothèse 2).
 
 **Testé en jeu par le joueur (21/11/2026)** sur les jauges Endurance, Maturité et Amour : la jauge **ne bouge plus**
 (1) quand l'enclos est **vide** et (2) quand les montures sont **au maximum** de cette caractéristique. Pas de perte
-de carburant dans ces deux cas. Le cas (2) n'est pas encore modélisé : l'appli ne connaît pas l'Endurance, la
-Maturité ou l'Amour actuels des montures (issue dédiée). Tant que ce n'est pas fait, l'heure « vide à » peut être
-trop tôt quand les montures atteignent leur maximum.
+de carburant dans ces deux cas. Le cas (2) est modélisé depuis #77 (section suivante), quand le joueur saisit la
+valeur actuelle des montures.
 
 - **Calcul** (`consoAutreJauge`, `lib/enclos.ts`, fonction pure) : pour chaque monture, la période où elle est dans
   la plage (`periodeDansPlage`, depuis l'état saisi : la sérénité bouge dans un seul sens tant que la jauge de
@@ -187,6 +186,46 @@ trop tôt quand les montures atteignent leur maximum.
   se vide jamais : elle a encore du carburant que personne n'utilise).
 - **Ressaisie** (`brouillonDe`, #35) : le niveau prérempli de l'autre jauge est le niveau estimé avec les pauses.
 - Format stocké inchangé (version 12).
+
+## Monture au maximum d'Endurance, de Maturité ou d'Amour (#77)
+
+**Saisie facultative** : quand l'autre jauge est Endurance, Maturité ou Amour (pas l'Expérience de monture), chaque
+ligne de monture du formulaire propose sa valeur actuelle (« Endurance … / 20 000 », clavier texte : « 12k »
+accepté, 0 à 20 000). **Sans valeur saisie, rien ne change** : même calcul, même carte qu'avant #77. Changer de jauge
+d'élevage efface les valeurs tapées (une Endurance n'est pas un Amour).
+
+- **Calcul** (`profitsJauge`, `lib/serenity.ts`, fonction pure, par événements) : une monture **profite** de la jauge
+  tant qu'elle est dans la plage (`periodeDansPlage`, #73) **et** sous 20 000 (`STAT_MAX`). La jauge consomme tant
+  qu'au moins une monture en profite ; chaque point consommé ajoute un point à **chaque** monture qui en profite, au
+  débit du tier du niveau restant. Entre deux événements (entrée ou sortie de plage, arrivée au maximum, jauge vide)
+  l'ensemble des montures qui profitent est fixe ; l'arrivée au maximum de la plus proche est datée exactement
+  (`tempsPourConsommer`, tiers compris). La fin de la période d'une monture est donc sa sortie de plage **ou** son
+  arrivée au maximum, la première des deux ; la réunion de ces périodes remplace celle de #73 dans
+  `consoAutreJauge` (« vide à », pause, reprise, niveau estimé). Valeur estimée à un instant : `valeurApres`.
+- **Carte** : la première arrivée au maximum est un événement de retour (« Reviens avant HH:MM » · « la monture 2
+  atteint le maximum d'Endurance : sors-la ») ; une ligne discrète (`texteMaximum`) dit « Monture 2 au maximum
+  d'Endurance depuis HH:MM : sors-la. Monture 3 au maximum d'Endurance vers HH:MM : sors-la. » (l'heure du titre n'y
+  est pas répétée), puis « Toutes les montures sont au maximum d'Endurance depuis HH:MM : sors-les. ». La ligne de la
+  jauge dit « Jauge Endurance en pause depuis HH:MM : toutes les montures sont au maximum. » (ou « la monture 1 est au
+  maximum, aucune autre en sérénité négative »). Déjà au maximum à la saisie : « À faire maintenant ».
+- **Heure de retour = le plus tôt** des événements de sérénité (#31, #64) et des arrivées au maximum : c'est le
+  premier moment où il y a quelque chose à faire à l'enclos, et prendre le plus tôt ne retarde jamais une urgence de
+  sérénité. La sérénité reste prioritaire (priorité du joueur) : à égalité, ou si la sérénité est déjà « à faire
+  maintenant », c'est elle qui donne l'heure ; une monture au maximum ne met **jamais** la carte en rouge à elle seule
+  (`estUrgent` regarde alors l'événement de sérénité qui suit, `retourSerenite`), et cet événement reste écrit dans
+  l'encadré (« Sérénité : reviens avant HH:MM au plus tard (…) »). Le conseil de remplissage reste calculé sur
+  l'événement de sérénité, comme avant. La tournée (#65) et les rappels prennent l'heure de retour telle quelle.
+- **Alerte « ne monte plus »** (#63) : une monture déjà au maximum qui sort de la plage n'est plus signalée (elle ne
+  perd rien).
+- **Ressaisie** (`brouillonDe`) : la valeur proposée est la valeur estimée maintenant (au plus 20 000).
+- **Format stocké** : `enclos[].montures[].stat` (entier 0 à 20 000), **absent** quand il n'est pas saisi.
+  `STORAGE_VERSION` 13 (migration `migrateStatsMontures` : valeur illisible retirée, rien d'autre à transformer) :
+  une appli v12 restée ouverte passe en lecture seule au lieu de réécrire les enclos sans ces valeurs. **Export :
+  version 5 inchangée**. Un ancien export (sans le champ) s'importe tel quel (valeurs inconnues) ; un nouvel export
+  lu par une appli plus ancienne s'importe aussi, sans les valeurs : elle retombe sur le calcul d'avant #77, sans
+  rien fausser. Augmenter la version ferait au contraire refuser tout le fichier par cette appli, pour une donnée
+  facultative et éphémère (elle change à chaque passage et se ressaisit). Différent de #66, où perdre le lieu de
+  vente changeait les résultats en silence.
 
 ## Caractéristiques des montures (relevé en jeu, 21/11/2026)
 

@@ -88,6 +88,10 @@ export const monture = z.object({
   nom: z.string().max(60).default(""),
   /* sérénité propre à chaque monture : -5 000 à +5 000 */
   serenite: z.number().int().min(-5000).max(5000).default(0),
+  /* Valeur actuelle de la caractéristique de l'autre jauge (Endurance, Maturité ou Amour), 0 à 20 000 (#77, version 13).
+     Facultative : absente, l'appli ne sait pas quand la monture atteint le maximum (calcul d'avant #77). Illisible :
+     retirée, sans jamais faire perdre la monture ni l'enclos. */
+  stat: z.number().int().min(0).max(20000).nullish().catch(undefined),
 });
 
 /* Rappel programmé pour la saisie actuelle d'un enclos (#53 agenda / Google Agenda) ; at = heure du rappel.
