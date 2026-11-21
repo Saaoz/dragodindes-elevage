@@ -176,10 +176,10 @@ describe("persistance", () => {
   });
 
   it("une version future ne plante pas et n'est pas lue", async () => {
-    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 9, state: { server: "Orukam" } }));
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: STORAGE_VERSION + 1, state: { server: "Orukam" } }));
     await useStore.persist.rehydrate();
     expect(st().server).toBe("Draconiros");
-    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(9);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(STORAGE_VERSION + 1);
   });
 
   it("un échec d'écriture (quota) ne lève pas", () => {
@@ -514,7 +514,7 @@ describe("mode démo isolé (cas de #5)", () => {
   });
 });
 
-describe("rappel push par enclos (#16) : version 5", () => {
+describe("rappel par enclos (#16) : version 5", () => {
   const enclosSaisi = (saisieLe: number, rappel: unknown = undefined) => ({
     nom: "Nord", jaugeSerenite: "+", niveauSerenite: 1000, saisieLe, ...(rappel === undefined ? {} : { rappel }),
   });
@@ -523,10 +523,12 @@ describe("rappel push par enclos (#16) : version 5", () => {
     expect(STORAGE_VERSION).toBeGreaterThanOrEqual(5);
   });
 
-  it("migrateRappels : ajoute rappel null, garde un rappel valide, répare un rappel illisible, idempotent", () => {
-    const src = { enclos: [enclosSaisi(1), enclosSaisi(2, { messageId: "msg_1", at: 5 }), enclosSaisi(3, { messageId: 42 })] };
+  it("migrateRappels : ajoute rappel null, garde un rappel valide, répare un rappel illisible ou push, idempotent", () => {
+    const src = {
+      enclos: [enclosSaisi(1), enclosSaisi(2, { methode: "agenda", at: 5 }), enclosSaisi(3, { messageId: 42 }), enclosSaisi(4, { messageId: "msg_1", at: 5 })],
+    };
     const m = migrateRappels(src) as { enclos: Record<string, unknown>[] };
-    expect(m.enclos.map((e) => e.rappel)).toEqual([null, { messageId: "msg_1", at: 5, methode: "push" }, null]);
+    expect(m.enclos.map((e) => e.rappel)).toEqual([null, { methode: "agenda", at: 5 }, null, null]);
     expect(migrateRappels(m)).toEqual(m);
     expect("rappel" in src.enclos[0]).toBe(false); // argument non modifié
     expect(migrateRappels({ autre: 1 })).toEqual({ autre: 1 });
@@ -551,11 +553,11 @@ describe("rappel push par enclos (#16) : version 5", () => {
 
   it("setRappel : enregistre et persiste, refuse si l'enclos a été ressaisi", () => {
     useStore.setState({ enclos: st().enclos.map((e, i) => (i === 1 ? { ...e, saisieLe: 77 } : e)) });
-    expect(st().setRappel(1, 77, { methode: "push", messageId: "msg_9", at: 123 })).toBe(true);
-    expect(st().enclos[1].rappel).toEqual({ methode: "push", messageId: "msg_9", at: 123 });
-    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).state.enclos[1].rappel.messageId).toBe("msg_9");
+    expect(st().setRappel(1, 77, { methode: "agenda", at: 123 })).toBe(true);
+    expect(st().enclos[1].rappel).toEqual({ methode: "agenda", at: 123 });
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).state.enclos[1].rappel.at).toBe(123);
     expect(st().setRappel(1, 78, null)).toBe(false); // ressaisi entre-temps
-    expect(st().setRappel(1, 77, { methode: "push", messageId: "", at: 1 })).toBe(false); // invalide
+    expect(st().setRappel(1, 77, { methode: "push", at: 1 } as never)).toBe(false); // push retiré : invalide
     expect(st().setRappel(9, null, null)).toBe(false);
     expect(st().setRappel(1, 77, null)).toBe(true);
     expect(st().enclos[1].rappel).toBeNull();
@@ -565,14 +567,14 @@ describe("rappel push par enclos (#16) : version 5", () => {
     mem.setItem(STORAGE_KEY, JSON.stringify({ version: 99, state: {} }));
     await useStore.persist.rehydrate();
     const before = [...mem.m];
-    expect(st().setRappel(0, null, { methode: "push", messageId: "msg_1", at: 1 })).toBe(false);
+    expect(st().setRappel(0, null, { methode: "agenda", at: 1 })).toBe(false);
     expect([...mem.m]).toStrictEqual(before);
   });
 
   it("le rappel est propre à l'appareil : ni exporté ni importé", () => {
-    useStore.setState({ enclos: st().enclos.map((e, i) => (i === 0 ? { ...e, saisieLe: 5, rappel: { methode: "push", messageId: "msg_x", at: 9 } } : e)) });
+    useStore.setState({ enclos: st().enclos.map((e, i) => (i === 0 ? { ...e, saisieLe: 5, rappel: { methode: "google", at: 987654 } } : e)) });
     const out = st().exportJSON();
-    expect(out).not.toContain("msg_x");
+    expect(out).not.toContain("987654");
     expect(JSON.parse(out).data.enclos[0]).not.toHaveProperty("rappel");
     const avecRappel = JSON.parse(out);
     avecRappel.data.enclos[0].rappel = { methode: "push", messageId: "msg_y", at: 9 };
@@ -606,7 +608,7 @@ describe("refonte (#4) : objectif par enclos, marge des rappels, démo", () => {
   });
 
   it("setEnclos : remplace l'enclos, remet le rappel à null, refuse un indice invalide", () => {
-    const e = { ...st().enclos[0], nom: "Nord", saisieLe: 5, rappel: { methode: "push" as const, messageId: "m", at: 1 } };
+    const e = { ...st().enclos[0], nom: "Nord", saisieLe: 5, rappel: { methode: "agenda" as const, at: 1 } };
     expect(st().setEnclos(0, e)).toBe(true);
     expect(st().enclos[0]).toMatchObject({ nom: "Nord", saisieLe: 5, rappel: null });
     expect(st().setEnclos(6, e)).toBe(false);
@@ -712,7 +714,8 @@ describe("version 7 (#51) : méthode de rappel mémorisée", () => {
     expect(migrateMethodeRappel(sans).reglages).toEqual({ margeRappelMin: 5, methodeRappel: null });
     expect(sans.reglages).toEqual({ margeRappelMin: 5 });
     expect(migrateMethodeRappel({ reglages: { margeRappelMin: 5, methodeRappel: "bip" } }).reglages.methodeRappel).toBeNull();
-    const bon = { reglages: { margeRappelMin: 5, methodeRappel: "push" } };
+    expect(migrateMethodeRappel({ reglages: { margeRappelMin: 5, methodeRappel: "push" } }).reglages.methodeRappel).toBeNull(); // push retiré
+    const bon = { reglages: { margeRappelMin: 5, methodeRappel: "google" } };
     expect(migrateMethodeRappel(migrateMethodeRappel(bon))).toEqual(bon);
   });
 
@@ -738,13 +741,42 @@ describe("version 7 (#51) : méthode de rappel mémorisée", () => {
     const brut = JSON.stringify({ version: STORAGE_VERSION + 1, state: fixture.data });
     mem.setItem(STORAGE_KEY, brut);
     await useStore.persist.rehydrate();
-    st().setMethodeRappel("push");
+    st().setMethodeRappel("agenda");
     expect(mem.getItem(STORAGE_KEY)).toBe(brut);
   });
 
   it("l'export contient la méthode", () => {
     st().setMethodeRappel("google");
     expect(JSON.parse(st().exportJSON()).data.reglages).toEqual({ margeRappelMin: 5, methodeRappel: "google" });
+  });
+});
+
+describe("version 9 : notifications push retirées", () => {
+  it("la version de stockage est 9", () => {
+    expect(STORAGE_VERSION).toBe(9);
+  });
+
+  it("migration v8 → v9 : rappel push et méthode « push » remis à null, enclos et autres rappels gardés", async () => {
+    const base = { nom: "Nord", jaugeSerenite: "+", niveauSerenite: 1000 };
+    const enclos = Array.from({ length: 6 }, (_, i) => ({
+      ...base,
+      saisieLe: 60 + i,
+      rappel: i === 0 ? { methode: "push", messageId: "msg_8", at: 999 } : i === 1 ? { methode: "google", at: 555 } : null,
+    }));
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 8, state: { ...fixture.data, enclos, reglages: { margeRappelMin: 15, methodeRappel: "push" } } }));
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(false);
+    expect(st().enclos.map((e) => e.saisieLe)).toEqual([60, 61, 62, 63, 64, 65]);
+    expect(st().enclos[0].rappel).toBeNull();
+    expect(st().enclos[1].rappel).toEqual({ methode: "google", at: 555 });
+    expect(st().reglages).toEqual({ margeRappelMin: 15, methodeRappel: null });
+  });
+
+  it("un export contenant un ancien rappel push s'importe (rappel ignoré)", () => {
+    const exp = JSON.parse(st().exportJSON());
+    exp.data.enclos[0] = { ...exp.data.enclos[0], saisieLe: 7, rappel: { methode: "push", messageId: "m", at: 9 } };
+    expect(st().importJSON(JSON.stringify(exp)).ok).toBe(true);
+    expect(st().enclos[0]).toMatchObject({ saisieLe: 7, rappel: null });
   });
 });
 
@@ -755,38 +787,34 @@ describe("version 8 (#53) : rappel agenda / Google mémorisé par enclos", () =>
   const marquer = (i: number, saisieLe: number) =>
     useStore.setState({ enclos: st().enclos.map((e, k) => (k === i ? { ...e, saisieLe } : e)) });
 
-  it("la version de stockage est 8", () => {
-    expect(STORAGE_VERSION).toBe(8);
-  });
-
-  it("migration v7 → v8 : l'ancien rappel push est conservé tel quel (methode push ajoutée), rien d'autre ne change", async () => {
+  it("migration v7 → v9 : l'ancien rappel push est remis à null, rien d'autre ne change", async () => {
     const enclos = Array.from({ length: 6 }, (_, i) =>
       i === 1 ? saisi(50, { rappel: { messageId: "msg_7", at: 999 } }) : saisi(40 + i),
     );
     mem.setItem(STORAGE_KEY, JSON.stringify({ version: 7, state: { ...fixture.data, enclos } }));
     await useStore.persist.rehydrate();
     expect(st().futureVersion).toBe(false);
-    expect(st().enclos[1].rappel).toEqual({ methode: "push", messageId: "msg_7", at: 999 });
+    expect(st().enclos[1].rappel).toBeNull();
     expect(st().enclos[1].saisieLe).toBe(50);
     expect(st().enclos[0].rappel).toBeNull();
     expect(st().enclos.every((e) => e.ancienRappel === null)).toBe(true);
-    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(8);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(9);
   });
 
-  it("migrateRappelsAgenda : push legacy → methode push, ancienRappel null, illisible → null, idempotent, argument intact", () => {
+  it("migrateRappelsAgenda : push legacy → null, ancienRappel null, illisible → null, idempotent, argument intact", () => {
     const src = { enclos: [saisi(1, { rappel: { messageId: "m", at: 5 } }), saisi(2, { ancienRappel: { methode: "bip", at: 1 } }), saisi(3, { rappel: { methode: "agenda", at: 8 } })] };
     const m = migrateRappelsAgenda(src) as { enclos: Record<string, unknown>[] };
-    expect(m.enclos[0]).toMatchObject({ rappel: { methode: "push", messageId: "m", at: 5 }, ancienRappel: null });
+    expect(m.enclos[0]).toMatchObject({ rappel: null, ancienRappel: null });
     expect(m.enclos[1].ancienRappel).toBeNull();
     expect(m.enclos[2].rappel).toEqual({ methode: "agenda", at: 8 });
     expect(migrateRappelsAgenda(m)).toEqual(m);
     expect(src.enclos[0].rappel).toEqual({ messageId: "m", at: 5 });
   });
 
-  it("setRappel agenda / google : enregistré, persisté, rechargé ; un push exige son messageId", async () => {
+  it("setRappel agenda / google : enregistré, persisté, rechargé ; push (retiré) et page refusés", async () => {
     marquer(0, 10);
     expect(st().setRappel(0, 10, { methode: "agenda", at: 1234 })).toBe(true);
-    expect(st().setRappel(0, 10, { methode: "push", at: 1 })).toBe(false);
+    expect(st().setRappel(0, 10, { methode: "push", at: 1 } as never)).toBe(false);
     expect(st().setRappel(0, 10, { methode: "page" as never, at: 1 })).toBe(false);
     expect(JSON.parse(mem.getItem(STORAGE_KEY)!).state.enclos[0].rappel).toEqual({ methode: "agenda", at: 1234 });
     await useStore.persist.rehydrate();
@@ -804,15 +832,11 @@ describe("version 8 (#53) : rappel agenda / Google mémorisé par enclos", () =>
     expect(st().enclos[0].ancienRappel).toEqual({ methode: "agenda", at: 1234 });
   });
 
-  it("vidage : rappel null et ancien événement noté ; un push n'est jamais noté (il s'annule)", () => {
+  it("vidage : rappel null et ancien événement noté", () => {
     marquer(1, 10);
     st().setRappel(1, 10, { methode: "google", at: 77 });
     st().setEnclos(1, { ...st().enclos[1], saisieLe: null, jaugeSerenite: null, niveauSerenite: 0 });
     expect(st().enclos[1]).toMatchObject({ saisieLe: null, rappel: null, ancienRappel: { methode: "google", at: 77 } });
-    marquer(2, 10);
-    st().setRappel(2, 10, { methode: "push", messageId: "m", at: 77 });
-    st().setEnclos(2, { ...st().enclos[2], saisieLe: 11 });
-    expect(st().enclos[2]).toMatchObject({ rappel: null, ancienRappel: null });
   });
 
   it("annuler ou changer de méthode note l'ancien événement ; reprogrammer à l'identique ne note rien", () => {
@@ -820,7 +844,7 @@ describe("version 8 (#53) : rappel agenda / Google mémorisé par enclos", () =>
     st().setRappel(0, 10, { methode: "agenda", at: 5 });
     st().setRappel(0, 10, { methode: "agenda", at: 5 });
     expect(st().enclos[0].ancienRappel).toBeNull();
-    st().setRappel(0, 10, { methode: "push", messageId: "m", at: 9 });
+    st().setRappel(0, 10, { methode: "google", at: 9 });
     expect(st().enclos[0].ancienRappel).toEqual({ methode: "agenda", at: 5 });
     marquer(1, 10);
     st().setRappel(1, 10, { methode: "google", at: 6 });

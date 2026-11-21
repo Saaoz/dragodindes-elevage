@@ -27,8 +27,10 @@ export const STORAGE_KEY = "dd-elevage-v3";
    la version sert uniquement à passer les anciennes versions en lecture seule (`futureVersion`) ;
    7 : méthode de rappel mémorisée (`reglages.methodeRappel`, #51) ;
    8 : `enclos.rappel` devient { methode, at, messageId? } (agenda / Google Agenda en plus du push) et
-   `enclos.ancienRappel` (événement d'agenda laissé par la saisie précédente, #53). */
-export const STORAGE_VERSION = 8;
+   `enclos.ancienRappel` (événement d'agenda laissé par la saisie précédente, #53) ;
+   9 : notifications push retirées : un rappel push enregistré est remis à null, et la méthode
+   mémorisée « push » aussi (le choix est reproposé). */
+export const STORAGE_VERSION = 9;
 export const LEGACY_V2_KEY = "dd-elevage-v2";
 export const LEGACY_V1_KEY = "dd-elevage-v1";
 
@@ -92,7 +94,7 @@ export function migrateOptimakina<T>(data: T): T {
   return { ...data, prices } as T;
 }
 
-/* ---------- migration v4 → v5 : rappel push par enclos (#16) ----------
+/* ---------- migration v4 → v5 : rappel par enclos (#16) ----------
    Chaque enclos reçoit `rappel: null` s'il n'en a pas ; un rappel illisible est remis à null (il ne
    doit jamais faire perdre l'enclos entier). Idempotent ; ne modifie pas son argument. */
 export function migrateRappels<T>(data: T): T {
@@ -105,15 +107,12 @@ export function migrateRappels<T>(data: T): T {
   return { ...data, enclos } as T;
 }
 
-/* Rappel d'avant la v8 : { messageId, at } sans méthode = push, conservé tel quel avec sa méthode. */
-function rappelNormalise(r: unknown): unknown {
-  if (r === undefined) return null;
-  if (isObj(r) && !("methode" in r) && typeof r.messageId === "string") return { ...r, methode: "push" };
-  return r;
-}
+/* Rappel absent : null. Un ancien rappel push (avec ou sans méthode, v5 à v8) n'est plus lisible et
+   tombe à null via le schéma, sans toucher au reste de l'enclos. */
+const rappelNormalise = (r: unknown): unknown => (r === undefined ? null : r);
 
 /* ---------- migration v7 → v8 : rappel agenda / Google et événement d'agenda à supprimer (#53) ----------
-   Un ancien rappel push { messageId, at } reçoit methode "push" (rien d'autre ne change) ; `ancienRappel` vaut
+   Un ancien rappel push est remis à null (rien d'autre ne change) ; `ancienRappel` vaut
    null s'il est absent ou illisible. Idempotent ; ne modifie pas son argument. */
 export function migrateRappelsAgenda<T>(data: T): T {
   const d = migrateRappels(data);
@@ -135,14 +134,14 @@ export function migrateMethodeRappel<T>(data: T): T {
   return { ...data, reglages: { ...reglages, methodeRappel: r.success ? r.data : null } } as T;
 }
 
-/* Le rappel est propre à l'appareil (subscription push locale) : jamais exporté ni importé. */
+/* Le rappel est propre à l'appareil (agenda de cet appareil) : jamais exporté ni importé. */
 const sansRappels = (enclos: readonly Enclos[]): Enclos[] => enclos.map((e) => ({ ...e, rappel: null, ancienRappel: null }));
 
 /* Événement d'agenda à supprimer à la main : l'ancien rappel agenda / Google qui disparaît ou change
    (ressaisie, vidage, annulation, autre méthode) ; à défaut, celui déjà noté reste noté. */
 function ancienApres(avant: Enclos, apres: Rappel | null): AncienRappel | null {
   const r = avant.rappel;
-  if (r && r.methode !== "push" && !(apres && apres.methode === r.methode && apres.at === r.at))
+  if (r && !(apres && apres.methode === r.methode && apres.at === r.at))
     return { methode: r.methode, at: r.at };
   return avant.ancienRappel;
 }
@@ -321,10 +320,10 @@ export interface Actions {
   exportJSON: () => string;
   importJSON: (text: string) => Result;
   ageDays: (server: ServerId, key: PriceKey) => number | null;
-  /* Enregistre (ou efface avec null) le rappel push de l'enclos i, seulement si l'enclos n'a pas été
+  /* Enregistre (ou efface avec null) le rappel de l'enclos i, seulement si l'enclos n'a pas été
      ressaisi entre-temps (même `saisieLe`) ; false sinon, ou en lecture seule (version future). */
   setRappel: (i: number, saisieLe: number | null, rappel: Rappel | null) => boolean;
-  /* Remplace l'enclos i (validé ; le rappel est remis à null et, s'il était agenda / Google, noté dans `ancienRappel` : c'est l'appelant qui replanifie le push). */
+  /* Remplace l'enclos i (validé ; le rappel est remis à null et, s'il était agenda / Google, noté dans `ancienRappel`). */
   setEnclos: (i: number, e: Enclos) => boolean;
   /* Objectif de l'enclos i (#4 : enregistré, n'est plus perdu au rechargement). */
   setObjectif: (i: number, o: Objectif) => boolean;
@@ -547,7 +546,9 @@ export const useStore = create<AppStore>()(
       /* v5 → v6 : rien à transformer (objectif et reglages.margeRappelMin ont des défauts au schéma). */
       const v5 = version < 5 ? migrateRappels(v4) : v4;
       const v7 = version < 7 ? migrateMethodeRappel(v5) : v5;
-      return (version < 8 ? migrateRappelsAgenda(v7) : v7) as AppStore;
+      const v8 = version < 8 ? migrateRappelsAgenda(v7) : v7;
+      /* v8 → v9 : push retiré ; rappel push et méthode « push » remis à null. */
+      return (version < 9 ? migrateMethodeRappel(migrateRappelsAgenda(v8)) : v8) as AppStore;
     },
     /* Toujours nettoyer ce qui vient du disque, même à version égale. */
     merge: (persisted, current) => ({ ...current, ...sanitize(persisted) }),

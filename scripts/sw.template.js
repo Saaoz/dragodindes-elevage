@@ -1,4 +1,4 @@
-/* Service worker écrit à la main : app shell hors ligne + notifications push (#16).
+/* Service worker écrit à la main : app shell hors ligne.
    SOURCE : ce fichier est un modèle. `scripts/build-sw.mjs` (hook `prebuild`) remplace le marqueur de version
    ci-dessous et génère public/sw.js (non versionné) : la version change donc à chaque build (#55).
    Un seul cache par version ; tout cache `elevage-*` d'une autre version est supprimé à l'activation. */
@@ -114,54 +114,4 @@ self.addEventListener("fetch", (event) => {
       })(),
     );
   }
-});
-
-// --- Push (#16) ---
-// Payload JSON envoyé par /api/reminders/fire : { "titre", "corps", "url": "/enclos#enclos-N", "tag" }
-// Sur iOS, CHAQUE push doit afficher une notification (sinon Safari finit par révoquer l'abonnement).
-const cheminInterne = (u) => (typeof u === "string" && /^\/(?!\/)/.test(u) ? u : "/enclos");
-
-self.addEventListener("push", (event) => {
-  let data = {};
-  try {
-    data = event.data ? event.data.json() : {};
-  } catch {
-    data = { corps: event.data ? event.data.text() : "" };
-  }
-  const title = (typeof data.titre === "string" && data.titre) || "Élevage de dragodindes";
-  const options = {
-    body: typeof data.corps === "string" ? data.corps : "",
-    icon: "/icons/icon-192.png",
-    badge: "/icons/icon-192.png",
-    data: { url: cheminInterne(data.url) },
-    timestamp: Date.now(),
-  };
-  if (typeof data.tag === "string" && data.tag) {
-    options.tag = data.tag; // une notification plus récente du même enclos remplace l'ancienne
-    options.renotify = true;
-  }
-  event.waitUntil(self.registration.showNotification(title, options));
-});
-
-self.addEventListener("notificationclick", (event) => {
-  event.notification.close();
-  const target = new URL(cheminInterne(event.notification.data && event.notification.data.url), self.location.origin);
-  event.waitUntil(
-    (async () => {
-      const wins = await self.clients.matchAll({ type: "window", includeUncontrolled: true });
-      // Une fenêtre de l'appli est déjà ouverte : on la réutilise (de préférence celle déjà sur /enclos).
-      const memeOrigine = wins.filter((w) => new URL(w.url).origin === self.location.origin);
-      const w = memeOrigine.find((x) => new URL(x.url).pathname === target.pathname) || memeOrigine[0];
-      if (w) {
-        try {
-          const f = (await w.focus()) || w;
-          if (new URL(f.url).href !== target.href) await f.navigate(target.href);
-          return;
-        } catch {
-          /* fenêtre non contrôlée par ce service worker : on en ouvre une nouvelle */
-        }
-      }
-      await self.clients.openWindow(target.href);
-    })(),
-  );
 });

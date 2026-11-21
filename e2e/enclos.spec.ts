@@ -156,7 +156,7 @@ test("mode démo sur les enclos : enclos fictifs, rien n'est écrit", async ({ p
   await expect(page.getByRole("region", { name: "Enclos 1 (démo)" })).toHaveCount(0);
 });
 
-test("sans variables d'environnement : pas de choix « téléphone », ni explication inutile ; agenda toujours disponible", async ({ page }) => {
+test("choix du rappel : agenda par défaut, Google Agenda, pas de notification push (retirée)", async ({ page }) => {
   await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
   await page.goto("/enclos");
   await saisir(page);
@@ -165,10 +165,8 @@ test("sans variables d'environnement : pas de choix « téléphone », ni explic
   const dialogue = choix(page);
   await expect(dialogue).toBeVisible();
   await expect(dialogue.getByRole("radio", { name: /Sur mon téléphone/ })).toHaveCount(0);
-  await expect(dialogue.getByTestId("sans-push")).toHaveCount(0);
   await expect(dialogue.getByRole("radio", { name: /Dans mon agenda/ })).toBeChecked();
   await expect(dialogue.getByRole("radio", { name: /Dans Google Agenda/ })).toBeVisible();
-  await expect(page.getByText(/pas encore configurées sur ce serveur/)).toHaveCount(0);
 
   const download = page.waitForEvent("download");
   await dialogue.getByRole("button", { name: /^Me rappeler à/ }).click();
@@ -339,16 +337,7 @@ test("cibles tactiles d'au moins 44 px : bouton de rappel et « changer »", asy
   for (const r of await choix(page).locator("label").all()) expect((await taille(r)).height).toBeGreaterThanOrEqual(44);
 });
 
-test("API des rappels sans configuration : réponses propres, aucun crash", async ({ request }) => {
-  const etat = await request.get("/api/reminders");
-  expect(etat.status()).toBe(200);
-  expect(await etat.json()).toMatchObject({ disponible: false });
-  expect((await request.post("/api/reminders", { data: {} })).status()).toBe(503);
-  expect((await request.post("/api/reminders/fire", { data: {} })).status()).toBe(503);
-  expect((await request.delete("/api/reminders/msg_1", { data: { endpoint: "x" } })).status()).toBe(503);
-});
-
-test("un lien de notification ouvre l'enclos concerné", async ({ page }) => {
+test("un lien /enclos#enclos-3 ouvre l'enclos concerné", async ({ page }) => {
   await page.goto("/enclos#enclos-3");
   await expect(page.locator("#enclos-3")).toBeFocused();
   await expect(page.locator("#enclos-3")).toHaveAccessibleName("Enclos 3");

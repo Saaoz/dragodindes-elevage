@@ -36,14 +36,8 @@ export interface RappelCarte {
   /* méthode mémorisée, et méthodes utilisables sur cet appareil (la meilleure d'abord) */
   methode: MethodeRappel | null;
   methodes: readonly MethodeRappel[];
-  /* phrase simple expliquant pourquoi la notification sur le téléphone manque */
-  sansPush: string | null;
-  enCours: boolean;
-  note: string | null;
   onMethode: (m: MethodeRappel) => void;
-  /* planifie la notification push ; renvoie l'heure d'envoi, ou null si elle n'a pas pu être programmée */
-  onPush: () => Promise<number | null>;
-  /* annule le rappel programmé de cet enclos (annule le push s'il y en a un ; l'agenda ne peut pas être retiré par l'appli) */
+  /* oublie le rappel programmé de cet enclos (l'événement d'agenda, lui, ne peut pas être retiré par l'appli) */
   onAnnuler: () => void;
   /* mémorise un rappel agenda / Google programmé pour la saisie actuelle ; false si rien n'a pu être écrit */
   onProgramme: (methode: "agenda" | "google", at: number) => boolean;
@@ -115,7 +109,7 @@ export function EnclosCard({
 }) {
   const nom = enclos.nom || `Enclos ${vue.index + 1}`;
   const [edition, setEdition] = useState(false);
-  /* Rappel « dans la page » : seul état non persisté (il disparaît vraiment au rechargement). Push, agenda et
+  /* Rappel « dans la page » : seul état non persisté (il disparaît vraiment au rechargement). Agenda et
      Google Agenda sont mémorisés dans `enclos.rappel` et survivent au rechargement (#53). */
   const [fait, setFait] = useState<{ methode: MethodeRappel; at: number } | null>(null);
   const [choixOuvert, setChoixOuvert] = useState(false);
@@ -175,11 +169,10 @@ export function EnclosCard({
   const heure = formatHeure(heureRappelMs, maintenantMs);
 
   /* Rappel programmé pour la saisie actuelle : « dans la page » (état local), sinon celui mémorisé dans l'enclos.
-     Le push n'est plus à venir une fois son heure passée ; agenda et Google restent « programmés » jusqu'à la ressaisie. */
+     Agenda et Google restent « programmés » jusqu'à la ressaisie. */
   const memo = !reglageRappel.demo ? enclos.rappel : null;
-  const memoValide = memo !== null && (memo.methode !== "push" || memo.at > maintenantMs);
   const etat: { methode: MethodeRappel; at: number } | null =
-    fait && fait.at > maintenantMs ? fait : memoValide ? { methode: memo.methode, at: memo.at } : null;
+    fait && fait.at > maintenantMs ? fait : memo !== null ? { methode: memo.methode, at: memo.at } : null;
   /* Événement d'agenda laissé par la saisie précédente (ressaisie, vidage, annulation) : à supprimer à la main,
      tant qu'il n'est pas passé. */
   const ancien = !reglageRappel.demo ? enclos.ancienRappel : null;
@@ -192,14 +185,7 @@ export function EnclosCard({
       setAnnonce(`Rappel programmé à ${formatHeure(at, Date.now())}`);
       return true;
     };
-    if (m === "push") {
-      const at = await reglageRappel.onPush();
-      if (at === null) {
-        setAnnonce("");
-        return false;
-      }
-      return programme(at);
-    } else if (m === "agenda" || m === "google") {
+    if (m === "agenda" || m === "google") {
       if (m === "agenda") telecharger(nomFichierIcs(`retour-${nom}`), construireIcs(evt));
       else window.open(lienGoogleAgenda(evt), "_blank", "noopener,noreferrer");
       /* mémorisé dans l'enclos : l'état survit au rechargement et le gros bouton ne revient pas (pas de doublon d'agenda) */
@@ -443,8 +429,6 @@ export function EnclosCard({
                   )}
                 </>
               )}
-              {reglageRappel.enCours && <p className="text-sm text-muted-foreground">Programmation du rappel…</p>}
-              {reglageRappel.note && <p className="text-sm text-warning">{reglageRappel.note}</p>}
               {/* annonce vocale : la zone existe avant son contenu pour que le lecteur d'écran la lise ; en démo elle se voit aussi */}
               <p
                 role="status"
@@ -461,7 +445,6 @@ export function EnclosCard({
                 heure={heure}
                 methodes={reglageRappel.methodes}
                 initiale={methodeMemorisee ?? reglageRappel.methodes[0] ?? "agenda"}
-                sansPush={reglageRappel.sansPush}
                 rappelActif={etat !== null}
                 finalFocus={() => !focusPris.current}
                 onConfirmer={confirmer}
