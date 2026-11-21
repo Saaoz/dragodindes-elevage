@@ -109,7 +109,7 @@ tout en tier 4, soit **2 000 s ≈ 33 min** ; les 192 000 points restants (≈ 3
 ## À vérifier en jeu
 
 - [ ] Peut-on **retirer le carburant** (ou couper une jauge) avant qu'elle soit vide, ou seulement
-  changer de jauge (Sérénité + / −) ? La carte dit « à vérifier en jeu » (#33). Le conseil au bord de
+  changer de jauge (Sérénité + / −) ? La carte ne le dit plus au joueur (#57) : elle conseille seulement de changer de jauge dès le retour. Le conseil au bord de
   la zone (« passe sur la jauge Sérénité − », #45) suppose qu'on peut changer de jauge sur place.
 - [ ] **Valeur de chaque visage** : le jeu montre des visages, pas un nombre. Le filtre « Sérénité de
   … à … » de l'Étable permet d'encadrer la valeur exacte d'une monture.
@@ -120,3 +120,10 @@ tout en tier 4, soit **2 000 s ≈ 33 min** ; les 192 000 points restants (≈ 3
   3.7) et les points de jauge.
 - [ ] Almanax (avril : Sérénité − doublée, septembre : Sérénité + doublée) : double-t-il la vitesse
   ou l'effet par point ? Utilisable via `vitesseMult` si c'est la vitesse.
+
+## Carte d'enclos : urgence et textes (#57)
+
+- Rouge = urgence réelle : retour dans moins de **30 min** (SEUIL_URGENCE_S, stUrgent dans lib/enclos.ts) ou déjà dépassé. Au-delà, la carte et la ligne de l'accueil sont neutres (l'encadré d'alerte ±5 000 passe en avertissement). Attribut testable : data-urgent.
+- L'heure de retour n'apparaît qu'une fois (titre). L'encadré d'alerte sur le même événement ne garde que les points gaspillés ; le conseil ne cite pas l'heure.
+- Sans jauge active : « Aucune jauge de sérénité active : la sérénité ne bouge pas. » (l'objectif coché n'y change rien).
+

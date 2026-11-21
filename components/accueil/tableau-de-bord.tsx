@@ -7,7 +7,7 @@ import { useApp, useUi } from "@/components/app-state";
 import { Page } from "@/components/commun/en-tete";
 import { InstallApp } from "@/components/install-app";
 import { buttonVariants } from "@/components/ui/button";
-import { enclosUrgents, formatDuree, formatHeure, raisonRetour } from "@/lib/enclos";
+import { enclosUrgents, estUrgent, formatDuree, formatHeure, raisonRetour } from "@/lib/enclos";
 import { almanaxDuMois } from "@/lib/guide";
 import { cn } from "@/lib/utils";
 
@@ -51,12 +51,13 @@ function EnclosASurveiller() {
             const e = enclos[v.index];
             const nom = e.nom || `Enclos ${v.index + 1}`;
             const reste = (v.retour!.quandMs - maintenant) / 1000;
-            const urgent = v.alerte !== null || reste < 900;
+            const urgent = estUrgent(v, maintenant);
             const raison = raisonRetour(v, maintenant) ?? "";
             return (
               <li key={v.index}>
                 <Link
                   href={`/enclos#enclos-${v.index + 1}`}
+                  data-urgent={String(urgent)}
                   className={cn(
                     "flex items-center gap-3 rounded-lg border p-3 outline-none transition-colors hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50",
                     rang === 0 && (urgent ? "border-destructive/50 bg-destructive/5" : "border-primary/40 bg-primary/5"),
@@ -71,7 +72,9 @@ function EnclosASurveiller() {
                       {`${v.retardS !== null ? `depuis ${formatDuree(v.retardS)}` : `dans ${formatDuree(reste)}`} · ${raison}`}
                     </p>
                   </div>
-                  {v.alerte && <TriangleAlert className="size-5 shrink-0 text-destructive" aria-label="Alerte" />}
+                  {v.alerte && (
+                    <TriangleAlert className={cn("size-5 shrink-0", urgent ? "text-destructive" : "text-warning")} aria-label="Alerte" />
+                  )}
                   <ArrowRight className="size-4 shrink-0 text-muted-foreground" aria-hidden />
                 </Link>
               </li>

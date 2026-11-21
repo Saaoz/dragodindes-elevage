@@ -29,6 +29,11 @@ test("saisie d'un enclos : alerte ±5 000, heure de retour, persistance, agenda
   await expect(carte.getByRole("alert")).toContainText("+5 000");
   await expect(carte.getByRole("alert")).toContainText("192 000 points");
 
+  /* #57 : l'heure de retour n'est écrite qu'une fois, aucune note de développeur, pas de rouge à plus de 30 min */
+  await expect(carte.getByText(/21\sh\s33/)).toHaveCount(1);
+  await expect(carte.getByText(/à vérifier en jeu|carburant/)).toHaveCount(0);
+  await expect(carte).toHaveAttribute("data-urgent", "false");
+
   /* le plus urgent remonte en haut */
   await expect(page.getByRole("heading", { level: 2 }).first()).toHaveText("Enclos 1");
 
@@ -360,7 +365,9 @@ test("retour dépassé (#31) : vraie durée de retard, alerte au passé, pas d'a
   await page.clock.fastForward("02:00:00");
   await expect(carte.getByText("Retour dépassé depuis 1 h 26 min")).toBeVisible();
   await expect(carte.getByText(/La monture 1 est à \+5 000 depuis 21 h 33, 18 600 points de jauge gaspillés/)).toBeVisible();
-  await expect(carte.getByRole("alert")).toContainText("a atteint +5 000 à 21 h 33");
+  await expect(carte.getByRole("alert")).toContainText(/jusqu’à 192\s000 points de jauge seront gaspillés/);
+  await expect(carte.getByText(/21\sh\s33/)).toHaveCount(1);
+  await expect(carte).toHaveAttribute("data-urgent", "true");
   await expect(carte.getByRole("alert")).not.toContainText("atteindra");
   await expect(carte.getByText(/clique « Je quitte l’enclos »/)).toBeVisible();
   await expect(carte.getByText(/Objectif déjà atteint/)).toHaveCount(0);
@@ -704,4 +711,31 @@ test("focus du choix de rappel inchangé après une ressaisie (#51, #53, #56)", 
   await expect(choix(page)).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(changer(carte)).toBeFocused();
+});
+
+test("carte allégée (#57) : rouge seulement sous 30 min, sans jauge on ne parle plus d'« objectif »", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  await saisir(page);
+  /* retour à 21 h 33 : 33 min, pas urgent (carte et accueil) */
+  await expect(carte).toHaveAttribute("data-urgent", "false");
+  await expect(carte.getByText(/plus de points que nécessaire/)).not.toContainText(/\d{2}\sh\s\d{2}/);
+  await page.getByRole("link", { name: "Accueil", exact: true }).click();
+  const ligne = page.getByRole("link", { name: /Enclos 1.*Reviens avant 21 h 33/ });
+  await expect(ligne).toHaveAttribute("data-urgent", "false");
+
+  /* 10 min plus tard : moins de 30 min, urgent */
+  await page.clock.fastForward(10 * 60_000);
+  await expect(ligne).toHaveAttribute("data-urgent", "true");
+  await ligne.click();
+  await expect(page.getByRole("region", { name: "Enclos 1" })).toHaveAttribute("data-urgent", "true");
+
+  /* enclos sans jauge de sérénité : pas de « aucun objectif » */
+  const carte2 = page.getByRole("region", { name: "Enclos 2" });
+  await carte2.getByRole("button", { name: "Saisir cet enclos" }).click();
+  await carte2.getByLabel("Sérénité exacte de la monture 1").fill("0");
+  await carte2.getByRole("button", { name: /Enregistrer/ }).click();
+  await expect(carte2.getByText(/Aucune jauge de sérénité active/)).toHaveCount(1);
+  await expect(carte2.getByText(/aucun objectif/i)).toHaveCount(0);
 });

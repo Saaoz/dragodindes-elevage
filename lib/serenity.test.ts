@@ -215,13 +215,17 @@ describe("serenityPlan : Sérénité −, zone, regroupement", () => {
     expect(avec.excedent).toBe(192000);
     expect(avec.message).not.toMatch(/pas besoin de revenir/);
     expect(avec.message).not.toMatch(/reviens la couper/);
-    expect(avec.message).toMatch(/192\s000 points de trop.*reviens avant.*à vérifier en jeu/);
+    expect(avec.message).toMatch(/192\s000 points de trop.*reviens avant/);
     expect(avec.conseil).not.toMatch(/de trop/);
+    expect(avec.message).not.toMatch(/à vérifier en jeu/);
   });
 
   it("aucune jauge et aucun objectif", () => {
     const plan = serenityPlan({ serenites: [0], sens: null, niveauJauge: 0 });
     expect(plan.aRemplir).toMatchObject({ statut: "dejaAtteint", points: 0 });
+    /* « aucun objectif » est faux quand « Éviter ±5 000 » est coché : on ne parle que de la jauge */
+    expect(plan.aRemplir.conseil).toBe("Aucune jauge de sérénité active : la sérénité ne bouge pas.");
+    expect(plan.aRemplir.conseil).not.toMatch(/objectif/);
   });
 
   it("jauge vide : aucun événement, final = départ", () => {

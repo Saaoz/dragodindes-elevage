@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   brouillonDe,
+  alerteSurRetour,
   CONSEIL_RETARD,
   enclosUrgents,
+  estUrgent,
+  SEUIL_URGENCE_S,
   raisonRetour,
   texteAlerte,
   heureRappel,
@@ -366,8 +369,10 @@ describe("conseil de remplissage de la carte (#33)", () => {
     const c = ss(v.conseil!);
     /* à l'heure de retour la monture est à +2 000 et la jauge + pousse encore : jauge opposée (#45) */
     expect(c).toMatch(/^À ton retour : passe sur la jauge Sérénité − et mets 2 000 points au total pour recentrer tes montures dans la zone Maturité\./);
-    expect(c).toMatch(/reviens avant 21 h 20 pour changer de jauge \(à vérifier en jeu/);
-    expect(c).not.toMatch(/pas besoin de revenir|couper/);
+    expect(c).toMatch(/plus de points que nécessaire : change de jauge dès ton retour\.$/);
+    expect(c).not.toMatch(/pas besoin de revenir|couper|à vérifier en jeu|carburant/);
+    /* l'heure de retour est dans le titre de la carte : le conseil ne la répète pas (#57) */
+    expect(c).not.toMatch(/\d{2} h \d{2}/);
   });
 
   it("stable : même conseil à t et t + 60 s avant l'heure de retour", () => {
@@ -466,5 +471,68 @@ describe("conseil au retour au bord de la zone (#45)", () => {
       expect(v.retardS).not.toBeNull();
       expect(v.conseil).toBeNull();
     }
+  });
+});
+
+describe("carte allégée (#57)", () => {
+  const S = 1000;
+  /* retour (+5 000) à T0 + 2 000 s = 33 min 20 s : au-dessus du seuil d'urgence */
+  const borne = enclosTest([-3000], 200000);
+
+  it("seuil d'urgence : 30 min", () => {
+    expect(SEUIL_URGENCE_S).toBe(1800);
+  });
+
+  it("à plus de 30 min du retour : pas urgent, même avec une alerte ±5 000", () => {
+    const v = vueEnclos(borne, 0, T0);
+    expect(v.alerte).not.toBeNull();
+    expect(estUrgent(v, T0)).toBe(false);
+  });
+
+  it("à moins de 30 min du retour : urgent ; pile à 30 min : pas encore", () => {
+    const retour = vueEnclos(borne, 0, T0).retour!.quandMs;
+    expect(estUrgent(vueEnclos(borne, 0, retour - 1800 * S), retour - 1800 * S)).toBe(false);
+    expect(estUrgent(vueEnclos(borne, 0, retour - 1799 * S), retour - 1799 * S)).toBe(true);
+    expect(estUrgent(vueEnclos(borne, 0, retour - 60 * S), retour - 60 * S)).toBe(true);
+  });
+
+  it("retour dépassé : urgent ; sans heure de retour : jamais urgent", () => {
+    const retour = vueEnclos(borne, 0, T0).retour!.quandMs;
+    expect(estUrgent(vueEnclos(borne, 0, retour + 5 * S), retour + 5 * S)).toBe(true);
+    const sans = vueEnclos(enclosTest([0], 0, null), 0, T0);
+    expect(sans.retour).toBeNull();
+    expect(estUrgent(sans, T0)).toBe(false);
+  });
+
+  it("l'alerte sur le même événement que le titre ne répète pas l'heure, mais garde les points gaspillés", () => {
+    const v = vueEnclos(borne, 0, T0);
+    expect(alerteSurRetour(v)).toBe(true);
+    const t = ss(texteAlerte(v.alerte!, T0, true));
+    expect(t).toBe("la monture 1 atteindra +5 000. Si tu reviens plus tard, 192 000 points de jauge sont gaspillés pour elle.");
+    expect(t).not.toMatch(/\d{2} h \d{2}/);
+    const passe = vueEnclos(borne, 0, v.retour!.quandMs + 3600 * S);
+    expect(ss(texteAlerte(passe.alerte!, passe.retour!.quandMs, true))).not.toMatch(/\d{2} h \d{2}/);
+  });
+
+  it("l'heure de retour n'est répétée ni dans le conseil ni dans l'alerte (une seule fois, dans le titre)", () => {
+    const v = vueEnclos(borne, 0, T0);
+    const textes = ss([v.conseil ?? "", texteAlerte(v.alerte!, T0, alerteSurRetour(v))].join(" "));
+    expect(textes).not.toMatch(/\d{2} h \d{2}/);
+    expect(textes).not.toMatch(/à vérifier en jeu|carburant/);
+  });
+
+  it("Rester en Maturité : l'alerte ±5 000 plus tardive est un autre événement, avec son heure", () => {
+    const v = vueEnclos(borne, 0, T0, "maturite");
+    expect(alerteSurRetour(v)).toBe(false);
+    expect(ss(texteAlerte(v.alerte!, T0, alerteSurRetour(v)))).toMatch(/atteindra \+5 000 à 21 h 33/);
+  });
+
+  it("sans jauge de sérénité : aucune phrase « aucun objectif », pas de conseil en double", () => {
+    for (const objectif of ["aucun", "maturite"] as const) {
+      const v = vueEnclos(enclosTest([0, 1000], 0, null), 0, T0, objectif);
+      expect(v.retour).toBeNull();
+      expect(v.conseil ?? "").not.toMatch(/objectif/);
+    }
+    expect(vueEnclos(enclosTest([0], 0, null), 0, T0).conseil).toBeNull();
   });
 });

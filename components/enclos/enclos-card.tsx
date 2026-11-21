@@ -9,7 +9,9 @@ import { EnclosForm } from "@/components/enclos/enclos-form";
 import { IconeJauge } from "@/components/enclos/icone-jauge";
 import {
   brouillonDe,
+  alerteSurRetour,
   CONSEIL_RETARD,
+  estUrgent,
   formatDuree,
   formatHeure,
   formatNombre,
@@ -146,7 +148,8 @@ export function EnclosCard({
   const depasse = vue.retardS !== null;
   const raison = raisonRetour(vue, maintenantMs) ?? "";
   const jaugeVidee = vue.jaugeVideMs !== null && vue.jaugeVideMs <= maintenantMs;
-  const urgent = alerte !== null || (reste !== null && reste < 900);
+  /* rouge seulement si l'urgence est réelle (SEUIL_URGENCE_S, #57) ; sinon neutre ou avertissement */
+  const urgent = estUrgent(vue, maintenantMs);
 
   /* Rappel « dans la page » : setTimeout, perdu si la page est fermée ou rechargée. */
   const rappelPageA = fait?.methode === "page" ? fait.at : null;
@@ -251,6 +254,7 @@ export function EnclosCard({
       id={`enclos-${vue.index + 1}`}
       tabIndex={-1}
       aria-label={nom}
+      data-urgent={saisi ? String(urgent) : undefined}
       className={cn(
         "flex scroll-mt-20 flex-col gap-4 rounded-xl border bg-card p-4 text-card-foreground shadow-xs outline-none focus-visible:ring-3 focus-visible:ring-ring/50",
         saisi && urgent && "border-destructive/60",
@@ -266,7 +270,12 @@ export function EnclosCard({
             {nom}
           </h2>
           {premier && retour && (
-            <span className="mt-0.5 inline-flex items-center rounded-full bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive">
+            <span
+              className={cn(
+                "mt-0.5 inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+                urgent ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary",
+              )}
+            >
               Le plus urgent
             </span>
           )}
@@ -332,10 +341,16 @@ export function EnclosCard({
           )}
 
           {alerte && (
-            <p role="alert" className="flex gap-2 rounded-lg border border-destructive/40 p-3 text-sm text-destructive">
+            <p
+              role="alert"
+              className={cn(
+                "flex gap-2 rounded-lg border p-3 text-sm",
+                urgent ? "border-destructive/40 text-destructive" : "border-warning/50 text-warning",
+              )}
+            >
               <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
               <span>
-                <strong>Alerte</strong> : {texteAlerte(alerte, maintenantMs)}
+                <strong>Alerte</strong> : {texteAlerte(alerte, maintenantMs, alerteSurRetour(vue))}
               </span>
             </p>
           )}
