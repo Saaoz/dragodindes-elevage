@@ -1,4 +1,6 @@
 import { describe, expect, it } from "vitest";
+import { verdict } from "./rentabilite";
+import { demoData, priceValues } from "./store";
 import { chanceCible, compute, optimakinaPrice, DEFAULT_CALC, parseKamas, scenario, type CalcSettings, type Prices } from "./calc";
 
 /* Portage de legacy/tests.js : mêmes 21 tests, mêmes valeurs attendues. */
@@ -29,6 +31,7 @@ const base: CalcSettings = {
   priceTarget: 0,
   priceFail: 0,
   countGenetons: true,
+  lieuVente: "direct", // 0 % : valeurs historiques (avant la taxe HDV, #66)
 };
 
 describe("parseKamas", () => {
@@ -130,4 +133,60 @@ describe("Optimakina par génération", () => {
   });
 
   it("optimakinaPrice : 0 si rien", () => expect(optimakinaPrice(withOpti({}), 3)).toBe(0));
+});
+
+describe("taxe HDV (#66)", () => {
+  it("défaut : 2 % (Bonta/Brâkmar, autre alignement)", () => {
+    expect(DEFAULT_CALC.lieuVente).toBe("bonta-brakmar-autre");
+    expect(compute({ ...base, lieuVente: DEFAULT_CALC.lieuVente }, P).taxeTaux).toBe(0.02);
+  });
+
+  it("0 % : identique au comportement d'avant", () => {
+    const r = compute(base, P);
+    expect(r.taxeTaux).toBe(0);
+    near(r.taxeExpected, 0);
+    near(r.profitSuccess, 300000 + 200000 + 16 * 3000 - 470000);
+  });
+
+  it("taux : 1 % aligné, 2 % autre, 5 % Astrub", () => {
+    expect(compute({ ...base, lieuVente: "bonta-brakmar-aligne" }, P).taxeTaux).toBe(0.01);
+    expect(compute({ ...base, lieuVente: "astrub" }, P).taxeTaux).toBe(0.05);
+  });
+
+  it("la taxe s'applique au bébé, aux neurones et aux Génétons (reventes), pas au coût", () => {
+    const r = compute({ ...base, lieuVente: "bonta-brakmar-autre" }, P);
+    const brutSucces = 300000 + 200000 + 16 * 3000;
+    const brutEchec = 160000 + 200000;
+    near(r.taxeSuccess, brutSucces * 0.02);
+    near(r.taxeFail, brutEchec * 0.02);
+    near(r.profitSuccess, brutSucces * 0.98 - 470000);
+    near(r.profitFail, brutEchec * 0.98 - 470000);
+    near(r.cost, 470000);
+    near(r.taxeExpected, 0.7 * r.taxeSuccess + 0.3 * r.taxeFail);
+  });
+
+  it("parents revendus et Reproducteur : tout est taxé", () => {
+    const c = { ...base, parentsMode: "sell" as const, sterileSell: 50000, repro: true, countGenetons: false, lieuVente: "astrub" as const };
+    const r = compute(c, P);
+    near(r.taxeSuccess, (2 * 300000 + 100000) * 0.05);
+    near(r.profitFail, (2 * 160000 + 100000) * 0.95 - 470000);
+  });
+
+  it("seuil de rentabilité : l'espérance y est nulle, et il monte avec la taxe", () => {
+    const sans = compute({ ...base, countGenetons: false }, P);
+    const avec = compute({ ...base, countGenetons: false, lieuVente: "bonta-brakmar-autre" }, P);
+    expect(avec.breakEvenP!).toBeGreaterThan(sans.breakEvenP!);
+    const exact = compute({ ...base, countGenetons: false, lieuVente: "astrub", lvlA: 1, lvlB: 1, opti: false }, P);
+    const be = exact.breakEvenP!;
+    near(be * exact.profitSuccess + (1 - be) * exact.profitFail, 0);
+  });
+
+  it("démo Imagiro gén. 5 (+2 000 k, cas de #66) : « À l'équilibre » sans taxe, « Pas rentable » à 2 %", () => {
+    const D = priceValues(demoData(0).prices, "Imagiro");
+    const c = scenario({ ...DEFAULT_CALC, lieuVente: "direct" }, 5, "same");
+    const sans = verdict(compute(c, D));
+    const avec = verdict(compute({ ...c, lieuVente: "bonta-brakmar-autre" }, D));
+    expect(sans.statut).toBe("equilibre");
+    expect(avec.statut).toBe("pasRentable");
+  });
 });

@@ -3,7 +3,7 @@
    Portage de legacy/calc.js : mêmes formules, mêmes valeurs, aucune correction.
    ===================================================================== */
 
-import { GENETONS } from "./data";
+import { GENETONS, LIEU_VENTE_DEFAUT, tauxTaxe, type LieuVenteId } from "./data";
 
 export { GENETONS };
 
@@ -25,6 +25,8 @@ export interface CalcSettings {
   priceTarget: number;
   priceFail: number;
   countGenetons: boolean;
+  /* où les reventes sont mises en vente : fixe la taxe HDV (#66) */
+  lieuVente: LieuVenteId;
 }
 
 /* Valeurs par défaut du simulateur, reprises de defaultCalc (legacy/store.js).
@@ -46,6 +48,7 @@ export const DEFAULT_CALC: CalcSettings = {
   priceTarget: 0,
   priceFail: 0,
   countGenetons: false,
+  lieuVente: LIEU_VENTE_DEFAUT,
 };
 
 /* Prix numériques : gen[g] = prix d'une monture de génération g (index 0 inutilisé) */
@@ -67,6 +70,11 @@ export interface ComputeResult {
   fuel: number;
   cost: number;
   recovery: number;
+  /* taux de taxe HDV (0,02 = 2 %) et taxe payée selon l'issue (une seule mise en vente par objet) */
+  taxeTaux: number;
+  taxeSuccess: number;
+  taxeFail: number;
+  taxeExpected: number;
   genGain: number;
   genValue: number;
   profitSuccess: number;
@@ -185,13 +193,21 @@ export function compute(c: CalcSettings, P: Prices): ComputeResult {
     c.countGenetons && target > Math.max(genA, genB) ? (GENETONS[genA] || 0) + (GENETONS[genB] || 0) : 0;
   const genValue = genGain > 0 ? genGain * need("Valeur d'un Géténon", P.genetons) : 0;
 
-  const profitSuccess = babies * priceT + recovery + genValue - cost;
-  const profitFail = babies * priceF + recovery - cost;
+  // Taxe HDV (#66) : payée à la mise en vente sur chaque recette comptée au prix HDV (bébés, parents revendus,
+  // neurones, Génétons), une seule mise en vente par objet.
+  const taxeTaux = tauxTaxe(c.lieuVente);
+  const k = 1 - taxeTaux;
+  const grossSuccess = babies * priceT + recovery + genValue;
+  const grossFail = babies * priceF + recovery;
+  const taxeSuccess = grossSuccess * taxeTaux;
+  const taxeFail = grossFail * taxeTaux;
+  const profitSuccess = grossSuccess - taxeSuccess - cost;
+  const profitFail = grossFail - taxeFail - cost;
   const profitExpected = p * profitSuccess + (1 - p) * profitFail;
 
   // chance minimale pour que l'espérance soit >= 0
-  const denom = babies * (priceT - priceF) + genValue;
-  const breakEvenP = denom > 0 ? (cost - recovery - babies * priceF) / denom : null;
+  const denom = k * (babies * (priceT - priceF) + genValue);
+  const breakEvenP = denom > 0 ? (cost - k * (recovery + babies * priceF)) / denom : null;
 
   return {
     p,
@@ -203,6 +219,10 @@ export function compute(c: CalcSettings, P: Prices): ComputeResult {
     fuel,
     cost,
     recovery,
+    taxeTaux,
+    taxeSuccess,
+    taxeFail,
+    taxeExpected: p * taxeSuccess + (1 - p) * taxeFail,
     genGain,
     genValue,
     profitSuccess,

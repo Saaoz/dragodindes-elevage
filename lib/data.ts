@@ -122,3 +122,19 @@ export const SOURCES = [
   ["Next Stage — Quel serveur choisir sur DOFUS 3 ?", "https://www.next-stage.fr/2026/05/dofus-3-unity-quel-serveur-choisir.html"],
   ["DAFOUS — Guide Dragodindes Unity 3.5 (témoignage de marge, 3.5)", "https://dafous.app/guides/dragodindes.html"],
 ] as const;
+
+/* Lieux de vente et taxe de mise en vente (#66).
+   Taxe payée À LA MISE EN VENTE, sur le prix affiché, non remboursée si l'objet ne se vend pas.
+   Taux donnés par un joueur (novembre 2026) et cohérents avec le tutoriel officiel Dofus 3 (qui dit seulement que
+   la taxe dépend de l'alignement et de l'HDV utilisé) ; des guides récents (dofocus.fr) parlent de 2 % payés à la
+   mise en vente, non remboursés si invendu. NON vérifié officiellement : à vérifier en jeu au moment de la mise
+   en vente. Date de la note : 2026-11-21. */
+export const LIEUX_VENTE = [
+  { id: "bonta-brakmar-aligne", taux: 0.01, label: "Bonta/Brâkmar, aligné", detail: "Bonta ou Brâkmar, bon alignement : 1 %" },
+  { id: "bonta-brakmar-autre", taux: 0.02, label: "Bonta/Brâkmar, autre", detail: "Bonta ou Brâkmar, autre alignement : 2 %" },
+  { id: "astrub", taux: 0.05, label: "Astrub", detail: "Astrub, tous alignements : 5 %" },
+  { id: "direct", taux: 0, label: "Sans taxe", detail: "Vente directe entre joueurs : 0 %" },
+] as const;
+export type LieuVenteId = (typeof LIEUX_VENTE)[number]["id"];
+export const LIEU_VENTE_DEFAUT: LieuVenteId = "bonta-brakmar-autre"; // prudent : 2 %, le chiffre des guides
+export const tauxTaxe = (id: string): number => LIEUX_VENTE.find((l) => l.id === id)?.taux ?? 0.02;
