@@ -17,11 +17,12 @@ import {
   etatDeEnclos,
   nomZone,
   planEnclos,
-  pointsConsommes,
+  pointsConsommesIntermittent,
   remplissageAuRetour,
   SERENITE_MAX,
   tempsPourConsommer,
-  tempsVidage,
+  tempsVidageIntermittent,
+  unionIntervalles,
   ZONE_AMOUR,
   ZONE_ENDURANCE,
   ZONE_MATURITE,
@@ -136,11 +137,10 @@ export function changerAutreJauge(b: Brouillon, autre: AutreJauge | null, object
 export function brouillonDe(enclos: Enclos, etat?: EtatEstime): Brouillon {
   const serenites = etat ? etat.serenites : enclos.montures.map((m) => m.serenite);
   const niveau = etat ? etat.niveauJauge : enclos.niveauSerenite;
-  /* L'autre jauge se vide aussi depuis la saisie : avec un état estimé, on repart de son niveau estimé
-     (etat.tempsEcoule = (maintenant − saisieLe) / 1000). */
-  const niveauAutre = etat
-    ? Math.max(0, enclos.niveauAutre - pointsConsommes(enclos.niveauAutre, etat.tempsEcoule))
-    : enclos.niveauAutre;
+  /* L'autre jauge se vide aussi depuis la saisie, mais seulement quand une monture est dans sa plage (#73) :
+     avec un état estimé, on repart de son niveau estimé (etat.tempsEcoule = (maintenant − saisieLe) / 1000). */
+  const conso = etat && enclos.saisieLe !== null ? consoAutreJauge(enclos, enclos.saisieLe + etat.tempsEcoule * 1000) : null;
+  const niveauAutre = conso ? conso.niveau : enclos.niveauAutre;
   return {
     nom: enclos.nom,
     serenites: serenites.length ? serenites.map((s) => String(Math.round(s))) : [""],
@@ -268,8 +268,11 @@ export interface VueEnclos {
   conseil: string | null;
   /** Heure (ms) à laquelle la jauge de sérénité est (ou sera) vide, depuis la saisie ; null sans jauge. */
   jaugeVideMs: number | null;
-  /** Heure à laquelle l'autre jauge sera vide (ms), si renseignée. */
+  /** Heure à laquelle l'autre jauge sera (ou a été) vide (ms), pauses comprises (#73) ; null sans autre jauge ou si
+      elle ne se vide jamais (pause définitive). Raccourci de `consoAutre.videMs`. */
   autreVideMs: number | null;
+  /** Consommation de l'autre jauge (pauses hors plage, #73) ; null sans autre jauge ou sans saisie. */
+  consoAutre: ConsoAutreJauge | null;
   /** Jauge Endurance / Amour / Maturité qui ne sert pas (ou plus) pour une monture, avant d'être vide (#63). */
   alerteJauge: AlerteJauge | null;
 }
@@ -333,18 +336,83 @@ function periodeDansPlage(
   return [x < bas ? quand(bas - x) : -Infinity, sortie];
 }
 
+/** Consommation de la jauge Endurance / Amour / Maturité / XP saisie dans « Autre jauge » (#73). */
+export interface ConsoAutreJauge {
+  /** Niveau estimé à l'instant considéré. */
+  niveau: number;
+  /** Heure (ms) à laquelle elle est (ou sera) vide, pauses comprises ; null si elle ne se vide jamais. */
+  videMs: number | null;
+  /** En pause à l'instant considéré : encore du carburant, mais aucune monture dans sa plage. */
+  enPause: boolean;
+  /** enPause : début de la pause en cours (null : déjà en pause à la saisie). Sinon, si elle ne se vide jamais :
+      début de la pause définitive à venir. null dans les autres cas. */
+  pauseMs: number | null;
+  /** enPause : heure à laquelle une monture revient dans la plage (la jauge reprend) ; null si jamais. */
+  repriseMs: number | null;
+}
+
+/** Règle retenue (#73, décision du joueur du 21/11/2026, d'après les guides) : une jauge Endurance, Amour ou Maturité
+    ne se vide que pendant qu'AU MOINS UNE monture de l'enclos est dans sa plage (hypothèse « une suffit », à vérifier
+    en jeu). Les périodes dans la plage viennent de l'état SAISI (`periodeDansPlage`) ; la jauge consomme pendant leur
+    réunion, à la vitesse du tier de son niveau restant. L'Expérience de monture ne dépend pas de la sérénité : elle se
+    vide sans arrêt. Fonction pure : l'heure « maintenant » est un paramètre. */
+export function consoAutreJauge(enclos: Enclos, maintenantMs: number): ConsoAutreJauge | null {
+  const jauge = enclos.autreJauge;
+  const saisieLe = enclos.saisieLe;
+  if (!jauge || saisieLe === null) return null;
+  const plage = PLAGE_JAUGE[jauge];
+  const saisi = etatDeEnclos(enclos);
+  /* périodes en secondes depuis la saisie */
+  const actif: [number, number][] = plage
+    ? unionIntervalles(saisi.serenites.map((v) => periodeDansPlage(v, saisi.sens, saisi.niveauJauge, plage, (t) => t)))
+    : [[-Infinity, Infinity]];
+  const heure = (t: number) => Math.round(saisieLe + t * 1000);
+  const t = Math.max(0, (maintenantMs - saisieLe) / 1000);
+  const tVide = tempsVidageIntermittent(enclos.niveauAutre, actif);
+  const videMs = Number.isFinite(tVide) ? heure(tVide) : null;
+  const niveau = Math.max(0, enclos.niveauAutre - pointsConsommesIntermittent(enclos.niveauAutre, actif, t));
+  const vide = (videMs !== null && maintenantMs >= videMs) || niveau <= 0;
+  const enPause = !vide && !actif.some(([a, b]) => a <= t && t < b);
+  let pauseMs: number | null = null;
+  let repriseMs: number | null = null;
+  if (enPause) {
+    const fin = Math.max(-Infinity, ...actif.map(([, b]) => b).filter((b) => b <= t));
+    pauseMs = fin > 0 ? heure(fin) : null;
+    const debut = Math.min(Infinity, ...actif.map(([a]) => a).filter((a) => a > t));
+    repriseMs = Number.isFinite(debut) ? heure(debut) : null;
+  } else if (!vide && videMs === null && actif.length) pauseMs = heure(actif[actif.length - 1][1]);
+  return { niveau, videMs, enPause, pauseMs, repriseMs };
+}
+
+/** Ligne « Jauge … » de la carte (#73) : « vide à HH:MM », ou « en pause » quand aucune monture n'est dans sa plage. */
+export function texteAutreJauge(jauge: AutreJauge, c: ConsoAutreJauge, maintenantMs: number): string {
+  const dans = jauge === "Expérience de monture" ? "" : plageTexte()[jauge].dans;
+  const vide = c.videMs !== null ? `vide à ${formatHeure(c.videMs, maintenantMs)}` : "";
+  if (c.enPause) {
+    const depuis = c.pauseMs !== null ? ` depuis ${formatHeure(c.pauseMs, maintenantMs)}` : "";
+    const reprise =
+      c.repriseMs !== null ? ` Elle reprend vers ${formatHeure(c.repriseMs, maintenantMs)}${vide ? ` et sera ${vide}` : ""}.` : "";
+    return `Jauge ${jauge} en pause${depuis} : aucune monture ${dans}.${reprise}`;
+  }
+  if (c.videMs === null && c.pauseMs !== null)
+    return `Jauge ${jauge} en pause à partir de ${formatHeure(c.pauseMs, maintenantMs)} : plus aucune monture ${dans}.`;
+  return `Jauge ${jauge} ${vide}`;
+}
+
 function calculerAlerteJauge(
   enclos: Enclos,
   maintenantMs: number,
-  autreVideMs: number | null,
+  conso: ConsoAutreJauge | null,
   heure: (temps: number) => number,
   retour: RetourEnclos | null,
 ): AlerteJauge | null {
   const jauge = enclos.autreJauge;
   const plage = jauge ? PLAGE_JAUGE[jauge] : undefined;
-  if (!jauge || !plage || jauge === "Expérience de monture" || enclos.saisieLe === null) return null;
-  /* jauge d'élevage vide : plus rien à perdre */
-  if (autreVideMs === null || maintenantMs >= autreVideMs) return null;
+  if (!jauge || !plage || jauge === "Expérience de monture" || enclos.saisieLe === null || !conso) return null;
+  /* jauge d'élevage vide : plus rien à perdre. Elle ne se vide pas hors plage (#73) : la fenêtre de l'alerte va
+     jusqu'à l'heure « vide » pauses comprises, sans fin si elle ne se vide jamais. */
+  const autreVideMs = conso.videMs ?? Infinity;
+  if (maintenantMs >= autreVideMs) return null;
   const saisi = etatDeEnclos(enclos);
   const periodes = saisi.serenites.map((v) => periodeDansPlage(v, saisi.sens, saisi.niveauJauge, plage, heure));
   const base = { jauge, total: periodes.length };
@@ -420,9 +488,9 @@ export function vueEnclos(
   }
 
   const jaugeVideMs = depuisSaisie && depuisSaisie.tempsVide > 0 ? heure(depuisSaisie.tempsVide) : null;
-  const autreVideMs =
-    enclos.autreJauge && saisieLe !== null ? Math.round(saisieLe + tempsVidage(enclos.niveauAutre) * 1000) : null;
-  const alerteJauge = calculerAlerteJauge(enclos, maintenantMs, autreVideMs, heure, retardS === null && !aFaireMaintenant ? retour : null);
+  const consoAutre = consoAutreJauge(enclos, maintenantMs);
+  const autreVideMs = consoAutre?.videMs ?? null;
+  const alerteJauge = calculerAlerteJauge(enclos, maintenantMs, consoAutre, heure, retardS === null && !aFaireMaintenant ? retour : null);
 
   /* Conseil de remplissage (#33) : il ne sert qu'une fois sur place, donc il est calculé à l'heure de retour
      (il ne change plus chaque seconde) et ne dit jamais « pas besoin de revenir » à côté d'une heure de retour. */
@@ -452,7 +520,7 @@ export function vueEnclos(
     if (!aFaireMaintenant && retardS === null && depuisSaisie && depuisSaisie.aRemplir.excedent > 0)
       conseil += `${conseil ? " " : ""}La jauge contient plus de points que nécessaire : change de jauge dès ton retour.`;
   }
-  return { index, objectif, plan, retour, alerte, retardS, aFaireMaintenant, conseil: conseil || null, jaugeVideMs, autreVideMs, alerteJauge };
+  return { index, objectif, plan, retour, alerte, retardS, aFaireMaintenant, conseil: conseil || null, jaugeVideMs, autreVideMs, consoAutre, alerteJauge };
 }
 
 /* ---------- retour dépassé (#31) ---------- */
@@ -560,21 +628,24 @@ export function texteAlerte(alerte: AlerteEnclos, maintenantMs: number, memeEven
 /* Ce que dit l'alerte de jauge pour chaque jauge d'élevage. D'après les guides, une jauge dont aucune monture ne
    profite ne se vide pas (docs/serenite.md) : l'alerte parle donc de temps perdu (la jauge ne monte plus), pas de
    carburant gaspillé. */
-const plageTexte = (): Record<AlerteJauge["jauge"], { nom: string; est: string; sera: string; regle: string }> => ({
+const plageTexte = (): Record<AlerteJauge["jauge"], { nom: string; est: string; sera: string; regle: string; dans: string }> => ({
   Endurance: {
     nom: "l’Endurance",
+    dans: "en sérénité négative",
     est: "n’est pas négative",
     sera: "ne sera plus négative",
     regle: "l’Endurance ne monte qu’en sérénité négative",
   },
   Amour: {
     nom: "l’Amour",
+    dans: "en sérénité positive (0 compris)",
     est: "est négative",
     sera: "deviendra négative",
     regle: "l’Amour ne monte qu’en sérénité positive, 0 compris",
   },
   Maturité: {
     nom: "la Maturité",
+    dans: `entre ${formatNombre(-2000)} et ${formatSerenite(2000)}`,
     est: `est hors de ${formatNombre(-2000)} à ${formatSerenite(2000)}`,
     sera: `sortira de ${formatNombre(-2000)} à ${formatSerenite(2000)}`,
     regle: `la Maturité ne monte qu’entre ${formatNombre(-2000)} et ${formatSerenite(2000)}`,

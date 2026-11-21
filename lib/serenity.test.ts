@@ -12,6 +12,10 @@ import {
   SERENITE_MAX,
   tempsPourConsommer,
   tempsVidage,
+  tempsVidageIntermittent,
+  pointsConsommesIntermittent,
+  unionIntervalles,
+  dureeActive,
   vitesseAuNiveau,
   nomZone,
   ZONE_AMOUR,
@@ -64,6 +68,48 @@ describe("jauge : tiers 3.7 lus depuis lib/data.ts", () => {
     const tiers = [{ min: 0, max: 10, xpS: 1 }, { min: 11, max: 20, xpS: 5 }];
     expect(capaciteJauge({ tiers })).toBe(20);
     near(tempsVidage(20, { tiers }), 10 / 5 + 10);
+  });
+});
+
+describe("jauge qui ne consomme que par intervalles (#73)", () => {
+  it("unionIntervalles : tri, fusion (bords qui se touchent compris), vides retirés, infinis acceptés", () => {
+    expect(unionIntervalles([[30, 40], [-Infinity, 10], [10, 20], [Infinity, Infinity], [35, 50], [60, 60]])).toEqual([
+      [-Infinity, 20],
+      [30, 50],
+    ]);
+    expect(unionIntervalles([])).toEqual([]);
+  });
+
+  it("dureeActive : seulement entre 0 et t", () => {
+    const u = unionIntervalles([[-Infinity, 10], [30, Infinity]]);
+    expect(dureeActive(u, 5)).toBe(5);
+    expect(dureeActive(u, 20)).toBe(10);
+    expect(dureeActive(u, 50)).toBe(30);
+    expect(dureeActive(u, -1)).toBe(0);
+  });
+
+  it("toujours active : même résultat que tempsVidage / pointsConsommes", () => {
+    const toujours = [[-Infinity, Infinity]] as const;
+    near(tempsVidageIntermittent(85000, toujours), tempsVidage(85000));
+    near(pointsConsommesIntermittent(85000, toujours, 3000), pointsConsommes(85000, 3000));
+  });
+
+  it("pause : l'heure « vide » recule de la durée de la pause ; pause définitive : jamais vide", () => {
+    /* 1 000 points (tier 1) : 400 s actives, pause de 600 s, puis le reste */
+    expect(tempsVidageIntermittent(1000, [[0, 400], [1000, Infinity]])).toBe(1600);
+    expect(tempsVidageIntermittent(1000, [[0, 400]])).toBe(Infinity);
+    expect(tempsVidageIntermittent(1000, [])).toBe(Infinity);
+    expect(tempsVidageIntermittent(0, [])).toBe(0);
+    expect(pointsConsommesIntermittent(1000, [[0, 400], [1000, Infinity]], 800)).toBe(400);
+    expect(pointsConsommesIntermittent(1000, [[0, 400], [1000, Infinity]], 1100)).toBe(500);
+  });
+
+  it("la vitesse suit le tier du niveau restant, pas l'heure", () => {
+    /* 85 000 : 5 000 points à 2 pts/s (2 500 s actives) puis 1 pt/s ; pause de 1 000 s après 1 000 s */
+    const actif = [[0, 1000], [2000, Infinity]] as const;
+    near(pointsConsommesIntermittent(85000, actif, 1500), 2000);
+    near(pointsConsommesIntermittent(85000, actif, 3500), 5000);
+    near(tempsVidageIntermittent(85000, actif), tempsVidage(85000) + 1000);
   });
 });
 

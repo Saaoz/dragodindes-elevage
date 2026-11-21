@@ -156,10 +156,31 @@ mettait toutes en positif).
 - **Démo** (`lib/store.ts`) : Endurance avec Sérénité − (montures négatives, borne −5 000 à venir), Amour avec
   Sérénité − encore active (une monture va passer en négatif : montre l'alerte), Maturité sans jauge de sérénité.
 
-**Limite connue** : l'heure « Jauge … vide à » de l'autre jauge (et donc la fenêtre de l'alerte) suppose que
-cette jauge se vide sans arrêt. Si elle s'arrête quand aucune monture n'est dans sa plage (règle citée
-ci-dessous), elle sera vide **plus tard** que l'heure affichée. Le calcul n'a pas été changé : il faudrait
-savoir si l'arrêt vaut dès qu'**une** monture est hors plage ou seulement quand **toutes** le sont.
+## Jauge Endurance / Amour / Maturité en pause hors plage (#73)
+
+**Règle retenue** (décision du joueur du 21/11/2026, d'après les guides) : une jauge Endurance, Amour ou Maturité
+**ne se vide pas** tant qu'**aucune** monture de l'enclos n'est dans sa plage (Endurance −5 000…−1, Maturité
+−2 000…+2 000, Amour 0…+5 000 : `PLAGE_JAUGE`, `lib/enclos.ts`). Elle se vide dès qu'**au moins une** monture y est
+(hypothèse « une seule suffit », **à vérifier en jeu**), à la vitesse du tier de son niveau restant (mêmes tiers que la
+jauge de sérénité). L'**Expérience de monture** ne dépend pas de la sérénité : elle se vide sans arrêt. La jauge de
+sérénité garde son modèle (elle se vide sans arrêt, voir hypothèse 2).
+
+- **Calcul** (`consoAutreJauge`, `lib/enclos.ts`, fonction pure) : pour chaque monture, la période où elle est dans
+  la plage (`periodeDansPlage`, depuis l'état saisi : la sérénité bouge dans un seul sens tant que la jauge de
+  sérénité n'est pas vide, puis s'arrête) ; la jauge consomme pendant leur **réunion** (`unionIntervalles`,
+  `lib/serenity.ts`). Comme le débit ne dépend que du niveau restant, le niveau à l'instant t est celui d'une jauge
+  vidée sans arrêt pendant la durée active jusqu'à t (`pointsConsommesIntermittent`), et l'heure « vide » est
+  l'instant où la durée active atteint `tempsVidage(niveau)` (`tempsVidageIntermittent`, `Infinity` si les montures
+  sortent toutes de la plage pour de bon avant).
+- **Carte** (`texteAutreJauge`) : « Jauge Endurance vide à HH:MM » (pauses comprises) ; « Jauge Endurance en pause
+  depuis HH:MM : aucune monture en sérénité négative. » (sans heure si c'était déjà le cas à la saisie), suivi de
+  « Elle reprend vers HH:MM et sera vide à HH:MM. » si une monture revient dans la plage ; « Jauge Endurance en pause
+  à partir de HH:MM : plus aucune monture en sérénité négative. » quand elle ne sera jamais vide. Amour : « en
+  sérénité positive (0 compris) » ; Maturité : « entre −2 000 et +2 000 ».
+- **Alerte « ne monte plus »** (#63) : sa fenêtre va jusqu'à cette nouvelle heure « vide » (sans fin si la jauge ne
+  se vide jamais : elle a encore du carburant que personne n'utilise).
+- **Ressaisie** (`brouillonDe`, #35) : le niveau prérempli de l'autre jauge est le niveau estimé avec les pauses.
+- Format stocké inchangé (version 12).
 
 ## Hypothèses
 
@@ -180,11 +201,15 @@ savoir si l'arrêt vaut dès qu'**une** monture est hors plage ou seulement quan
 - [ ] Une monture **Dorée** bouge-t-elle 5 fois plus lentement en sérénité (×5) ? Non modélisé.
 - [ ] La jauge **continue-t-elle à se vider** une fois toutes les montures à ±5 000 ? (hypothèse 2)
 - [x] Une jauge **Endurance, Amour ou Maturité continue-t-elle à se vider** quand aucune monture n'est dans sa
-  plage (#63) ? **Retenu : non** (décision du joueur du 21/11/2026, faute de mieux : on suit les guides). D'après dofuspourlespros.com (guide de l'éleveur 2026, écrit pour la 3.5, à vérifier en jeu en
+  plage (#63) ? **Retenu : non** (décision du joueur du 21/11/2026, faute de mieux : on suit les guides ; calcul
+  depuis #73). D'après dofuspourlespros.com (guide de l'éleveur 2026, écrit pour la 3.5, à vérifier en jeu en
   3.7) : « si une jauge est active et qu'il n'y a aucune monture dans l'enclos ou que les montures dans l'enclos
   ne peuvent pas en profiter alors elle ne se vide pas » (écrit pour la mangeoire / XP, règle probablement
   générale). Si c'est vrai, sortir de la plage fait perdre du **temps**, pas du carburant (c'est ce que dit
-  l'alerte), et l'heure « Jauge … vide à » est trop tôt. Et si une seule monture sur plusieurs est hors plage ?
+  l'alerte) ; l'heure « Jauge … vide à » en tient compte depuis #73.
+- [ ] **Une seule monture dans la plage suffit-elle** à faire consommer la jauge Endurance / Amour / Maturité (#73) ?
+  Hypothèse retenue : oui (la jauge ne s'arrête que quand **aucune** monture n'est dans la plage). Si elle s'arrêtait
+  dès qu'une monture en sort, l'heure « vide à » serait encore plus tard.
 - [x] La sérénité **0** compte bien en Amour et pas en Endurance : confirmé en jeu par un joueur (21/11/2026).
 - [ ] Correspondance entre la **durabilité d'un carburant** (Minuscule 2 000 … Gigantesque 10 000 en
   3.7) et les points de jauge.
