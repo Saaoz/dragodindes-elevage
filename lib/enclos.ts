@@ -6,17 +6,22 @@ import {
   enclosSchema,
   MARGE_RAPPEL_DEFAUT_MIN,
   NB_ENCLOS,
+  type AutreJauge,
   type Enclos,
   type Objectif,
 } from "@/lib/schema";
 import {
   deplacer,
   etatDeEnclos,
+  nomZone,
   planEnclos,
   pointsConsommes,
   remplissageAuRetour,
   SERENITE_MAX,
+  tempsPourConsommer,
   tempsVidage,
+  ZONE_AMOUR,
+  ZONE_ENDURANCE,
   ZONE_MATURITE,
   type PlanSerenite,
   type EtatEstime,
@@ -72,7 +77,39 @@ export function parseNombre(texte: string): number | null {
 }
 
 export type { Objectif };
-export const ZONES: Record<Objectif, ZoneSerenite | undefined> = { aucun: undefined, maturite: ZONE_MATURITE };
+export const ZONES: Record<Objectif, ZoneSerenite | undefined> = {
+  aucun: undefined,
+  maturite: ZONE_MATURITE,
+  endurance: ZONE_ENDURANCE,
+  amour: ZONE_AMOUR,
+};
+
+/** Choix de l'objectif (carte et saisie), dans l'ordre affiché. */
+export const OPTIONS_OBJECTIF: readonly { valeur: Objectif; label: string }[] = [
+  { valeur: "aucun", label: "Éviter ±5 000" },
+  { valeur: "maturite", label: "Rester en Maturité" },
+  { valeur: "endurance", label: "Rester en Endurance" },
+  { valeur: "amour", label: "Rester en Amour" },
+];
+
+/* ---------- jauges d'élevage et plages de sérénité (#63) ---------- */
+/** Plage de sérénité où monte chaque jauge d'élevage (docs/serenite.md) ; l'XP ne dépend pas de la sérénité. */
+export const PLAGE_JAUGE: Partial<Record<AutreJauge, ZoneSerenite>> = {
+  Endurance: ZONE_ENDURANCE,
+  Maturité: ZONE_MATURITE,
+  Amour: ZONE_AMOUR,
+};
+
+/** Objectif qui garde les montures dans la plage de chaque jauge d'élevage. */
+export const OBJECTIF_DE_JAUGE: Partial<Record<AutreJauge, Objectif>> = {
+  Endurance: "endurance",
+  Maturité: "maturite",
+  Amour: "amour",
+};
+
+/** Objectif proposé pour une jauge d'élevage : celui de sa plage, sinon l'objectif actuel. */
+export const objectifParDefaut = (autre: AutreJauge | null, actuel: Objectif): Objectif =>
+  (autre && OBJECTIF_DE_JAUGE[autre]) || actuel;
 
 export interface Brouillon {
   nom: string;
@@ -82,6 +119,14 @@ export interface Brouillon {
   niveau: string;
   autre: (typeof AUTRES_JAUGES)[number] | null;
   niveauAutre: string;
+  /** Objectif de sérénité enregistré avec la saisie (proposé selon l'autre jauge, modifiable). */
+  objectif: Objectif;
+}
+
+/** Changement de l'autre jauge dans la saisie : l'objectif suit la jauge choisie (Endurance → « Rester en
+    Endurance »…), sauf si le joueur a déjà choisi l'objectif lui-même dans cette saisie. */
+export function changerAutreJauge(b: Brouillon, autre: AutreJauge | null, objectifChoisi: boolean): Brouillon {
+  return { ...b, autre, objectif: objectifChoisi ? b.objectif : objectifParDefaut(autre, b.objectif) };
 }
 
 /** Brouillon prérempli : avec `etat`, les valeurs ESTIMÉES maintenant (on repart de là en quittant l'enclos). */
@@ -100,6 +145,9 @@ export function brouillonDe(enclos: Enclos, etat?: EtatEstime): Brouillon {
     niveau: enclos.jaugeSerenite ? String(Math.round(niveau)) : "",
     autre: enclos.autreJauge,
     niveauAutre: enclos.autreJauge ? String(Math.round(niveauAutre)) : "",
+    /* Objectif encore « Éviter ±5 000 » (défaut, ou enclos d'avant #63) : la saisie propose celui de l'autre jauge.
+       Le joueur le voit dans le formulaire et peut le changer avant d'enregistrer. */
+    objectif: enclos.objectif === "aucun" ? objectifParDefaut(enclos.autreJauge, "aucun") : enclos.objectif,
   };
 }
 
@@ -140,6 +188,7 @@ export function enclosDeBrouillon(b: Brouillon, maintenantMs: number): ResultatB
     autreJauge: b.autre,
     niveauAutre,
     saisieLe: maintenantMs,
+    objectif: b.objectif,
   });
   return r.success ? { ok: true, enclos: r.data } : { ok: false, erreurs: ["Saisie invalide."] };
 }
@@ -172,8 +221,31 @@ export interface AlerteEnclos {
   gaspilleDeja: number;
 }
 
+/** La jauge Endurance, Amour ou Maturité ne sert pas (ou plus) pour au moins une monture : sa sérénité est
+    (ou sera, avant que cette jauge soit vide) hors de la plage où la jauge monte (#63). */
+export interface AlerteJauge {
+  jauge: "Endurance" | "Amour" | "Maturité";
+  /** Indices des montures concernées (triés) : déjà hors de la plage, ou (à venir) les premières à en sortir. */
+  montures: number[];
+  /** À venir : les autres montures qui en sortiront aussi plus tard, avant que la jauge soit vide (triées). */
+  suivantes: number[];
+  /** Nombre de montures de l'enclos. */
+  total: number;
+  /** true : la jauge ne sert déjà plus pour elles maintenant ; false : elle cessera de servir à `quandMs`. */
+  deja: boolean;
+  /** Heure (ms, depuis la saisie) de sortie de la plage : la première à venir, ou (deja) celle depuis laquelle
+      toutes sont dehors ; null si une monture était déjà hors de la plage à la saisie. */
+  quandMs: number | null;
+  /** deja : heure à laquelle toutes reviennent dans la plage avant que la jauge soit vide ; null sinon. */
+  revientMs: number | null;
+  /** L'heure de sortie est celle du titre de la carte (même événement) : on ne la répète pas. */
+  surRetour: boolean;
+}
+
 export interface VueEnclos {
   index: number;
+  /** Objectif utilisé pour ce calcul. */
+  objectif: Objectif;
   /** Plan à partir de l'état ESTIMÉ maintenant (sérénités, niveau, conseil de remplissage). */
   plan: PlanSerenite & { etat: EtatEstime };
   retour: RetourEnclos | null;
@@ -188,6 +260,8 @@ export interface VueEnclos {
   jaugeVideMs: number | null;
   /** Heure à laquelle l'autre jauge sera vide (ms), si renseignée. */
   autreVideMs: number | null;
+  /** Jauge Endurance / Amour / Maturité qui ne sert pas (ou plus) pour une monture, avant d'être vide (#63). */
+  alerteJauge: AlerteJauge | null;
 }
 
 /** Seuil d'urgence : le rouge n'est réservé qu'aux retours à moins de 30 min (ou déjà dépassés).
@@ -201,6 +275,76 @@ export function estUrgent(vue: Pick<VueEnclos, "retour" | "retardS">, maintenant
 }
 
 const TYPES_RETOUR = new Set(["sortieZone", "premiereBorne", "jaugeVide"]);
+
+/** Période [entrée ; sortie[ (ms) pendant laquelle une monture est dans la plage, d'après l'état SAISI : la sérénité
+    bouge dans un seul sens, donc c'est un seul intervalle (vide : [∞ ; ∞[). La sortie est datée quand la monture
+    ATTEINT le bord en étant poussée vers l'extérieur (comme « sortieZone » de serenityPlan) ; ±5 000 n'est pas une sortie. */
+function periodeDansPlage(
+  v: number,
+  sens: SensJauge | null,
+  niveau: number,
+  z: ZoneSerenite,
+  heure: (temps: number) => number,
+): [number, number] {
+  const dedans = v >= z.min && v <= z.max;
+  if (sens === null || niveau <= 0) return dedans ? [-Infinity, Infinity] : [Infinity, Infinity];
+  const quand = (points: number) => (points <= niveau + 1e-9 ? heure(tempsPourConsommer(niveau, points)) : Infinity);
+  /* coordonnées orientées : la jauge pousse toujours « vers le haut » */
+  const s = sens === "+" ? 1 : -1;
+  const x = s * v;
+  const bas = Math.min(s * z.min, s * z.max);
+  const haut = Math.max(s * z.min, s * z.max);
+  if (x > haut) return [Infinity, Infinity];
+  const sortie = haut < SERENITE_MAX ? quand(haut - x) : Infinity;
+  return [x < bas ? quand(bas - x) : -Infinity, sortie];
+}
+
+function calculerAlerteJauge(
+  enclos: Enclos,
+  maintenantMs: number,
+  autreVideMs: number | null,
+  heure: (temps: number) => number,
+  retour: RetourEnclos | null,
+): AlerteJauge | null {
+  const jauge = enclos.autreJauge;
+  const plage = jauge ? PLAGE_JAUGE[jauge] : undefined;
+  if (!jauge || !plage || jauge === "Expérience de monture" || enclos.saisieLe === null) return null;
+  /* jauge d'élevage vide : plus rien à perdre */
+  if (autreVideMs === null || maintenantMs >= autreVideMs) return null;
+  const saisi = etatDeEnclos(enclos);
+  const periodes = saisi.serenites.map((v) => periodeDansPlage(v, saisi.sens, saisi.niveauJauge, plage, heure));
+  const base = { jauge, total: periodes.length };
+
+  const hors = periodes.flatMap(([e, f], i) => (e <= maintenantMs && maintenantMs < f ? [] : [i]));
+  if (hors.length) {
+    /* « depuis » : seulement si toutes sont sorties après la saisie (sinon on ne sait pas dire depuis quand) */
+    const sorties = hors.map((i) => periodes[i][1]);
+    const datees = sorties.every((f) => Number.isFinite(f) && f <= maintenantMs);
+    const entrees = hors.map((i) => periodes[i][0]);
+    const reviennent = entrees.every((e) => Number.isFinite(e) && e > maintenantMs && e < autreVideMs);
+    return {
+      ...base,
+      montures: hors,
+      deja: true,
+      quandMs: datees ? Math.max(...sorties) : null,
+      revientMs: reviennent ? Math.max(...entrees) : null,
+      suivantes: [],
+      surRetour: false,
+    };
+  }
+  const futures = periodes.flatMap(([, f], i) => (f > maintenantMs && f < autreVideMs ? [i] : []));
+  if (!futures.length) return null;
+  const quandMs = Math.min(...futures.map((i) => periodes[i][1]));
+  return {
+    ...base,
+    montures: futures.filter((i) => periodes[i][1] === quandMs),
+    suivantes: futures.filter((i) => periodes[i][1] !== quandMs),
+    deja: false,
+    quandMs,
+    revientMs: null,
+    surRetour: retour !== null && retour.quandMs === quandMs && retour.evenement.type === "sortieZone",
+  };
+}
 
 export function vueEnclos(
   enclos: Enclos,
@@ -239,6 +383,7 @@ export function vueEnclos(
   const jaugeVideMs = depuisSaisie && depuisSaisie.tempsVide > 0 ? heure(depuisSaisie.tempsVide) : null;
   const autreVideMs =
     enclos.autreJauge && saisieLe !== null ? Math.round(saisieLe + tempsVidage(enclos.niveauAutre) * 1000) : null;
+  const alerteJauge = calculerAlerteJauge(enclos, maintenantMs, autreVideMs, heure, retardS === null ? retour : null);
 
   /* Conseil de remplissage (#33) : il ne sert qu'une fois sur place, donc il est calculé à l'heure de retour
      (il ne change plus chaque seconde) et ne dit jamais « pas besoin de revenir » à côté d'une heure de retour. */
@@ -263,7 +408,7 @@ export function vueEnclos(
         conseil += `${conseil ? " " : ""}La jauge contient plus de points que nécessaire : change de jauge dès ton retour.`;
     }
   }
-  return { index, plan, retour, alerte, retardS, conseil: conseil || null, jaugeVideMs, autreVideMs };
+  return { index, objectif, plan, retour, alerte, retardS, conseil: conseil || null, jaugeVideMs, autreVideMs, alerteJauge };
 }
 
 /* ---------- retour dépassé (#31) ---------- */
@@ -276,10 +421,12 @@ export function raisonRetour(vue: VueEnclos, maintenantMs: number): string | nul
   if (!vue.retour) return null;
   const { evenement: ev, quandMs } = vue.retour;
   const m = (ev.monture ?? 0) + 1;
+  const zone = ZONES[vue.objectif];
+  const laZone = zone ? nomZone(zone) : "la zone voulue";
   if (vue.retardS === null) {
     switch (ev.type) {
       case "sortieZone":
-        return "une monture sort de la zone Maturité";
+        return `une monture sort de ${laZone}`;
       case "premiereBorne":
         return "une monture atteint ±5 000";
       default:
@@ -293,7 +440,7 @@ export function raisonRetour(vue: VueEnclos, maintenantMs: number): string | nul
       return `la monture ${m} est à ${formatSerenite(ev.valeur ?? 0)} depuis ${h}${deja > 0 ? `, ${formatNombre(deja)} points de jauge gaspillés` : ""}`;
     }
     case "sortieZone":
-      return `la monture ${m} est sortie de la zone Maturité à ${h}`;
+      return `la monture ${m} est sortie de ${laZone} à ${h}`;
     default:
       return `jauge ${nomJauge(vue.plan.etat.sens)} vide depuis ${h}`;
   }
@@ -323,6 +470,60 @@ export function texteAlerte(alerte: AlerteEnclos, maintenantMs: number, memeEven
   return `${qui} a atteint ${formatSerenite(alerte.valeur)}${h} : ${formatNombre(alerte.gaspilleDeja)} points de jauge gaspillés pour elle${
     reste > 0 ? ` depuis, jusqu’à ${formatNombre(alerte.gaspille)} si tu ne reviens pas` : ""
   }.`;
+}
+
+/* Ce que dit l'alerte de jauge pour chaque jauge d'élevage. D'après les guides, une jauge dont aucune monture ne
+   profite ne se vide pas (docs/serenite.md) : l'alerte parle donc de temps perdu (la jauge ne monte plus), pas de
+   carburant gaspillé. */
+const plageTexte = (): Record<AlerteJauge["jauge"], { nom: string; est: string; sera: string; regle: string }> => ({
+  Endurance: {
+    nom: "l’Endurance",
+    est: "n’est pas négative",
+    sera: "ne sera plus négative",
+    regle: "l’Endurance ne monte qu’en sérénité négative",
+  },
+  Amour: {
+    nom: "l’Amour",
+    est: "est négative",
+    sera: "deviendra négative",
+    regle: "l’Amour ne monte qu’en sérénité positive, 0 compris",
+  },
+  Maturité: {
+    nom: "la Maturité",
+    est: `est hors de ${formatNombre(-2000)} à ${formatSerenite(2000)}`,
+    sera: `sortira de ${formatNombre(-2000)} à ${formatSerenite(2000)}`,
+    regle: `la Maturité ne monte qu’entre ${formatNombre(-2000)} et ${formatSerenite(2000)}`,
+  },
+});
+
+const listeMontures = (montures: readonly number[]): string => {
+  const n = montures.map((i) => String(i + 1));
+  return n.length === 1 ? `la monture ${n[0]}` : `les montures ${n.slice(0, -1).join(", ")} et ${n[n.length - 1]}`;
+};
+const majuscule = (t: string) => `${t.charAt(0).toUpperCase()}${t.slice(1)}`;
+
+/** Texte de l'alerte de jauge (#63), pour un joueur : quelle jauge ne monte plus, pour quelles montures, pourquoi, et quand. */
+export function texteAlerteJauge(a: AlerteJauge, maintenantMs: number): string {
+  const t = plageTexte()[a.jauge];
+  const toutes = a.total > 1 && a.montures.length === a.total;
+  const sa = a.montures.length === 1 ? "sa" : "leur";
+  const qui = toutes ? "aucune de tes montures" : listeMontures(a.montures);
+  if (a.deja) {
+    const verbe =
+      a.quandMs !== null
+        ? `ne monte plus pour ${qui} depuis ${formatHeure(a.quandMs, maintenantMs)}`
+        : `ne monte ${toutes ? "" : "pas "}pour ${qui} en ce moment`;
+    const reprend = a.revientMs !== null ? ` ${majuscule(t.nom)} reprendra vers ${formatHeure(a.revientMs, maintenantMs)}.` : "";
+    return `${majuscule(t.nom)} ${verbe} : ${sa} sérénité ${t.est} (${t.regle}).${reprend}`;
+  }
+  const quand = a.surRetour || a.quandMs === null ? "À l’heure de retour" : `À partir de ${formatHeure(a.quandMs, maintenantMs)}`;
+  const n = a.suivantes.length;
+  const suite = n
+    ? n === 1
+      ? ` La monture ${a.suivantes[0] + 1} suivra.`
+      : ` Les montures ${listeMontures(a.suivantes).slice("les montures ".length)} suivront.`
+    : "";
+  return `${quand}, ${t.nom} ne montera plus pour ${qui} : ${sa} sérénité ${t.sera} (${t.regle}).${suite}`;
 }
 
 /** L'alerte ±5 000 décrit le même événement que l'heure de retour du titre (première borne atteinte). */

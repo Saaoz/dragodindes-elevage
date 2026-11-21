@@ -71,10 +71,12 @@ export type PricesState = z.infer<typeof pricesSchema>;
 
 /* ---------- enclos (#2) : schéma seulement, pas d'UI ---------- */
 export const AUTRES_JAUGES = ["Endurance", "Maturité", "Amour", "Expérience de monture"] as const;
+export type AutreJauge = (typeof AUTRES_JAUGES)[number];
 
 /* Objectif de sérénité d'un enclos (#4 : enregistré avec l'enclos) :
-   « aucun » = éviter ±5 000, « maturite » = rester entre −2 000 et +2 000. */
-export const OBJECTIFS = ["aucun", "maturite"] as const;
+   « aucun » = éviter ±5 000, « maturite » = rester entre −2 000 et +2 000,
+   « endurance » = rester en sérénité négative, « amour » = rester en sérénité positive (#63, version 10). */
+export const OBJECTIFS = ["aucun", "maturite", "endurance", "amour"] as const;
 export type Objectif = (typeof OBJECTIFS)[number];
 
 /* Marge des rappels (agenda, notification) : prévenir N minutes AVANT l'heure de retour. */

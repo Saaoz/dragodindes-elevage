@@ -29,8 +29,11 @@ export const STORAGE_KEY = "dd-elevage-v3";
    8 : `enclos.rappel` devient { methode, at, messageId? } (agenda / Google Agenda en plus du push) et
    `enclos.ancienRappel` (événement d'agenda laissé par la saisie précédente, #53) ;
    9 : notifications push retirées : un rappel push enregistré est remis à null, et la méthode
-   mémorisée « push » aussi (le choix est reproposé). */
-export const STORAGE_VERSION = 9;
+   mémorisée « push » aussi (le choix est reproposé) ;
+   10 : objectifs « endurance » et « amour » (#63) — aucune donnée à transformer (les objectifs déjà
+   enregistrés restent valides) ; la version empêche une appli v9, qui lirait « endurance » comme
+   illisible (« aucun »), de réécrire les données (elle passe en lecture seule, `futureVersion`). */
+export const STORAGE_VERSION = 10;
 export const LEGACY_V2_KEY = "dd-elevage-v2";
 export const LEGACY_V1_KEY = "dd-elevage-v1";
 
@@ -548,7 +551,10 @@ export const useStore = create<AppStore>()(
       const v7 = version < 7 ? migrateMethodeRappel(v5) : v5;
       const v8 = version < 8 ? migrateRappelsAgenda(v7) : v7;
       /* v8 → v9 : push retiré ; rappel push et méthode « push » remis à null. */
-      return (version < 9 ? migrateMethodeRappel(migrateRappelsAgenda(v8)) : v8) as AppStore;
+      const v9 = version < 9 ? migrateMethodeRappel(migrateRappelsAgenda(v8)) : v8;
+      /* v9 → v10 : rien à transformer. L'objectif n'est PAS déduit de l'autre jauge ici (ce serait changer l'heure de
+         retour sans que le joueur le voie) : la saisie suivante le propose, visible et modifiable (#63). */
+      return v9 as AppStore;
     },
     /* Toujours nettoyer ce qui vient du disque, même à version égale. */
     merge: (persisted, current) => ({ ...current, ...sanitize(persisted) }),
@@ -582,23 +588,26 @@ export const DEMO_VALUES: Record<PriceKey, number> = {
   opti9: 150000, opti10: 150000,
 };
 
-/* Enclos fictifs de la démo : un enclos qui va gaspiller sa jauge, un en Maturité, un sans jauge de sérénité. */
+/* Enclos fictifs de la démo (#63 : objectifs cohérents avec la jauge d'élevage) :
+   1. Endurance, Sérénité − : les montures restent en négatif, mais la plus basse atteindra −5 000 (jauge gaspillée) ;
+   2. Amour, Sérénité − encore active pour redescendre de +5 000 : une monture va passer en négatif (alerte de jauge) ;
+   3. Maturité, sans jauge de sérénité : rien ne bouge, les montures restent dans la zone Maturité. */
 function demoEnclos(now: number): Enclos[] {
   const min = 60_000;
   const avant = (minutes: number) => Math.max(0, now - minutes * min);
   const d = defaultAppData().enclos;
   const m = (...s: number[]) => s.map((serenite) => ({ nom: "", serenite }));
   d[0] = enclosSchema.parse({
-    nom: "Enclos 1 (démo)", montures: m(-3200, -2900, -2600, -2400), jaugeSerenite: "+", niveauSerenite: 150000,
-    autreJauge: "Endurance", niveauAutre: 90000, saisieLe: avant(20),
+    nom: "Enclos 1 (démo)", montures: m(-2600, -2300, -2000, -1700), jaugeSerenite: "-", niveauSerenite: 60000,
+    autreJauge: "Endurance", niveauAutre: 90000, saisieLe: avant(20), objectif: "endurance",
   });
   d[1] = enclosSchema.parse({
-    nom: "Enclos 2 (démo)", montures: m(1500, 900, 400), jaugeSerenite: "-", niveauSerenite: 60000,
-    autreJauge: "Amour", niveauAutre: 120000, saisieLe: avant(90), objectif: "maturite",
+    nom: "Enclos 2 (démo)", montures: m(3400, 2900, 2500), jaugeSerenite: "-", niveauSerenite: 60000,
+    autreJauge: "Amour", niveauAutre: 120000, saisieLe: avant(30), objectif: "amour",
   });
   d[2] = enclosSchema.parse({
-    nom: "Enclos 3 (démo)", montures: m(0, 200), autreJauge: "Expérience de monture", niveauAutre: 180000,
-    saisieLe: avant(45),
+    nom: "Enclos 3 (démo)", montures: m(-200, 200), autreJauge: "Maturité", niveauAutre: 180000,
+    saisieLe: avant(45), objectif: "maturite",
   });
   return d;
 }

@@ -34,11 +34,13 @@ Jauge pleine (200 000) : ≈ 35 h 38 pour se vider. Les vitesses sont multiplié
 
 | Plage | Effet | Visage |
 |---|---|---|
-| −5 000 à −1 | Endurance | rouge :C (Endurance seule) |
+| −5 000 à −1 (0 exclu) | Endurance | rouge :C (Endurance seule) |
 | −2 000 à +2 000 | Maturité | bleu :( = Endurance + Maturité ; violet :) = Maturité + Amour |
-| 0 (ou +1) à +5 000 | Amour | vert :D (Amour seul) |
+| 0 à +5 000 (0 inclus) | Amour | vert :D (Amour seul) |
 
-Les guides ne donnent **aucune valeur numérique par visage**, seulement ces plages.
+Les guides ne donnent **aucune valeur numérique par visage**, seulement ces plages. Bornes d'après
+dofuspourlespros.com, guide de l'éleveur 2026 (écrit pour la 3.5, à vérifier en jeu en 3.7) ; elles sont
+dans `ZONE_ENDURANCE`, `ZONE_MATURITE` et `ZONE_AMOUR` (`lib/serenity.ts`).
 
 ## Ce que calcule `serenityPlan`
 
@@ -98,6 +100,43 @@ le plan à partir de maintenant (heure de retour = `maintenant + temps × 1000`)
 Exemple : une monture à −3 000, Sérénité + pleine (200 000) → +5 000 atteint après 8 000 points,
 tout en tier 4, soit **2 000 s ≈ 33 min** ; les 192 000 points restants (≈ 35 h) sont gaspillés.
 
+## Objectifs Endurance et Amour (#63)
+
+La jauge d'élevage saisie dans « Autre jauge » ne monte que dans sa plage de sérénité. Avant #63, seuls
+« Éviter ±5 000 » et « Rester en Maturité » existaient : les conseils pouvaient sortir les montures de la plage
+de la jauge payée (ex. montures −4 200…−3 000 avec Endurance : « mets 8 800 points de Sérénité + », qui les
+mettait toutes en positif).
+
+- **Objectifs** (`OBJECTIFS`, `lib/schema.ts`) : `aucun` (Éviter ±5 000), `maturite`, `endurance` (zone
+  −5 000…−1), `amour` (zone 0…+5 000). Endurance et Amour sont des zones comme la Maturité : même calcul de
+  l'heure de retour (`sortieZone` quand la monture atteint le bord, −1 en Sérénité + pour l'Endurance, 0 en
+  Sérénité − pour l'Amour ; côté ±5 000, c'est la borne qui reste l'événement) et même conseil (recentrer le
+  groupe dans la zone, jauge opposée au bord, séparer si impossible). Exemple de l'issue : au retour
+  (−5 000 / −4 600 / −3 800), « passe sur la jauge Sérénité + et mets 1 900 points au total pour recentrer tes
+  montures dans la zone Endurance (sérénité négative) » ; aucune monture ne passe à 0 ou plus.
+- **Objectif proposé à la saisie** (`objectifParDefaut`, `changerAutreJauge`, `brouillonDe` dans
+  `lib/enclos.ts`) : le formulaire montre l'objectif, prérempli avec celui de l'enclos. Quand le joueur change
+  l'autre jauge, l'objectif suit (Endurance → Rester en Endurance, Amour → Rester en Amour, Maturité → Rester en
+  Maturité ; XP ou aucune : inchangé), sauf s'il a déjà choisi l'objectif lui-même dans cette saisie. Un enclos
+  encore sur « Éviter ±5 000 » avec une jauge Endurance / Amour / Maturité reçoit l'objectif de cette jauge à
+  l'ouverture du formulaire (cas des enclos saisis avant #63) ; il reste modifiable avant d'enregistrer. Le
+  stockage (version 10) ne change aucun objectif enregistré sans que le joueur le voie.
+- **Alerte « ne monte plus »** (`AlerteJauge`, `texteAlerteJauge`) : quand la jauge Endurance, Amour ou Maturité
+  saisie a encore du carburant et qu'au moins une monture est (ou sera, avant l'heure « Jauge … vide à ») hors de
+  sa plage. Au présent (« L'Amour ne monte pas pour la monture 1 en ce moment : sa sérénité est négative … »,
+  avec « depuis HH:MM » si la sortie a eu lieu après la saisie, et l'heure de reprise si la jauge de sérénité
+  la ramène dans la plage), ou au futur (« À partir de HH:MM, l'Endurance ne montera plus pour la monture 4 … »,
+  « À l'heure de retour » quand c'est l'événement du titre). Elle parle de **temps perdu**, pas de carburant
+  gaspillé : d'après le même guide, une jauge dont aucune monture ne peut profiter ne se vide pas (voir
+  ci-dessous).
+- **Démo** (`lib/store.ts`) : Endurance avec Sérénité − (montures négatives, borne −5 000 à venir), Amour avec
+  Sérénité − encore active (une monture va passer en négatif : montre l'alerte), Maturité sans jauge de sérénité.
+
+**Limite connue** : l'heure « Jauge … vide à » de l'autre jauge (et donc la fenêtre de l'alerte) suppose que
+cette jauge se vide sans arrêt. Si elle s'arrête quand aucune monture n'est dans sa plage (règle citée
+ci-dessous), elle sera vide **plus tard** que l'heure affichée. Le calcul n'a pas été changé : il faudrait
+savoir si l'arrêt vaut dès qu'**une** monture est hors plage ou seulement quand **toutes** le sont.
+
 ## Hypothèses
 
 1. 1 point de jauge = 1 point de sérénité, pour toutes les montures, quelle que soit leur couleur.
@@ -116,6 +155,13 @@ tout en tier 4, soit **2 000 s ≈ 33 min** ; les 192 000 points restants (≈ 3
 - [ ] Le niveau exact d'une jauge est-il affiché quelque part (survol de la barre) ?
 - [ ] Une monture **Dorée** bouge-t-elle 5 fois plus lentement en sérénité (×5) ? Non modélisé.
 - [ ] La jauge **continue-t-elle à se vider** une fois toutes les montures à ±5 000 ? (hypothèse 2)
+- [ ] Une jauge **Endurance, Amour ou Maturité continue-t-elle à se vider** quand aucune monture n'est dans sa
+  plage (#63) ? D'après dofuspourlespros.com (guide de l'éleveur 2026, écrit pour la 3.5, à vérifier en jeu en
+  3.7) : « si une jauge est active et qu'il n'y a aucune monture dans l'enclos ou que les montures dans l'enclos
+  ne peuvent pas en profiter alors elle ne se vide pas » (écrit pour la mangeoire / XP, règle probablement
+  générale). Si c'est vrai, sortir de la plage fait perdre du **temps**, pas du carburant (c'est ce que dit
+  l'alerte), et l'heure « Jauge … vide à » est trop tôt. Et si une seule monture sur plusieurs est hors plage ?
+- [ ] La sérénité **0** compte-t-elle bien en Amour et pas en Endurance (bornes du même guide) ?
 - [ ] Correspondance entre la **durabilité d'un carburant** (Minuscule 2 000 … Gigantesque 10 000 en
   3.7) et les points de jauge.
 - [ ] Almanax (avril : Sérénité − doublée, septembre : Sérénité + doublée) : double-t-il la vitesse

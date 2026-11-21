@@ -66,9 +66,8 @@ export function EnclosPanel() {
 
   const sauver = (i: number, e: Enclos, annoncer = true) => {
     const magasin = magasinActif().getState();
-    const ancien = magasin.enclos[i];
-    /* l'objectif choisi reste celui de l'enclos, même après une nouvelle saisie */
-    if (!magasin.setEnclos(i, { ...e, objectif: ancien.objectif })) return;
+    /* l'objectif vient de la saisie (#63) : prérempli avec celui de l'enclos, proposé selon l'autre jauge, modifiable */
+    if (!magasin.setEnclos(i, e)) return;
     if (annoncer) {
       const nouveau = magasinActif().getState().enclos[i];
       const t = nouveau.saisieLe ?? maintenant;
@@ -76,7 +75,8 @@ export function EnclosPanel() {
     }
   };
   const vider = (i: number) => {
-    sauver(i, enclosSchema.parse({ nom: enclos[i].nom }), false);
+    /* vider garde le nom et l'objectif de l'enclos */
+    sauver(i, enclosSchema.parse({ nom: enclos[i].nom, objectif: enclos[i].objectif }), false);
     setAnnonce(`${enclos[i].nom || `Enclos ${i + 1}`} vidé.`);
   };
 

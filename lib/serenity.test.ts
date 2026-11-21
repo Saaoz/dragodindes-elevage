@@ -13,6 +13,9 @@ import {
   tempsPourConsommer,
   tempsVidage,
   vitesseAuNiveau,
+  nomZone,
+  ZONE_AMOUR,
+  ZONE_ENDURANCE,
   ZONE_MATURITE,
   type SensJauge,
 } from "./serenity";
@@ -437,5 +440,82 @@ describe("remplissageAuRetour : conseil au bord de la zone (#45)", () => {
           expect(x).toBeLessThanOrEqual(Z.max);
         }
       }
+  });
+});
+
+describe("zones Endurance et Amour (#63)", () => {
+  const ss = (t: string) => t.replace(/[  ]/g, " ");
+  const appliquer = (serenites: number[], sens: SensJauge, points: number) =>
+    serenityPlan({ serenites, sens, niveauJauge: points }).final;
+
+  it("plages : Endurance −5 000…−1 (sérénité négative), Amour 0…+5 000 ; noms pour le joueur", () => {
+    expect(ZONE_ENDURANCE).toEqual({ min: -5000, max: -1 });
+    expect(ZONE_AMOUR).toEqual({ min: 0, max: 5000 });
+    expect(nomZone(ZONE_MATURITE)).toBe("la zone Maturité");
+    expect(nomZone(ZONE_ENDURANCE)).toBe("la zone Endurance (sérénité négative)");
+    expect(nomZone(ZONE_AMOUR)).toBe("la zone Amour (sérénité positive)");
+    expect(nomZone({ min: -100, max: 100 })).toBe("la zone voulue");
+  });
+
+  it("Endurance, Sérénité + : sortie de zone quand la plus haute atteint −1 (avant de passer en positif)", () => {
+    const plan = serenityPlan({ serenites: [-3000, -1200], sens: "+", niveauJauge: 60000, zone: ZONE_ENDURANCE });
+    const sortie = plan.evenements.find((e) => e.type === "sortieZone");
+    expect(sortie).toMatchObject({ points: 1199, monture: 1, valeur: -1 });
+    expect(sortie!.temps).toBeLessThan(plan.evenements.find((e) => e.type === "premiereBorne")!.temps);
+  });
+
+  it("Amour, Sérénité − : sortie de zone quand la plus basse atteint 0 (jamais « −0 »)", () => {
+    const plan = serenityPlan({ serenites: [3000, 500], sens: "-", niveauJauge: 60000, zone: ZONE_AMOUR });
+    const sortie = plan.evenements.find((e) => e.type === "sortieZone");
+    expect(sortie).toMatchObject({ points: 500, monture: 1 });
+    expect(Object.is(sortie!.valeur, 0)).toBe(true);
+  });
+
+  it("Endurance, Sérénité − : pas de sortie de zone (la borne −5 000 reste l'événement)", () => {
+    const plan = serenityPlan({ serenites: [-4200, -3000], sens: "-", niveauJauge: 60000, zone: ZONE_ENDURANCE });
+    expect(plan.evenements.some((e) => e.type === "sortieZone")).toBe(false);
+    expect(plan.evenements.find((e) => e.type === "premiereBorne")).toMatchObject({ points: 800, valeur: -5000 });
+  });
+
+  it("exemple de l'issue : −4 200…−3 000 poussées à −5 000, objectif Endurance : Sérénité +, aucune monture ≥ 0", () => {
+    /* au retour (premiereBorne après 800 points de Sérénité −) : −5 000 / −4 600 / −3 800 */
+    const r = remplissageAuRetour({ serenites: [-5000, -4600, -3800], sens: "-", niveauJauge: 59200 }, ZONE_ENDURANCE);
+    expect(r).toMatchObject({ statut: "ok", sensConseille: "+" });
+    expect(ss(r.conseil)).toBe(
+      "Passe sur la jauge Sérénité + et mets 1 900 points au total pour recentrer tes montures dans la zone Endurance (sérénité négative).",
+    );
+    for (const x of appliquer([-5000, -4600, -3800], "+", Math.round(r.points))) expect(x).toBeLessThan(0);
+    /* sans objectif, l'ancien conseil (8 800 points) les mettait toutes en positif */
+    const sans = remplissageAuRetour({ serenites: [-5000, -4600, -3800], sens: "-", niveauJauge: 59200 });
+    expect(Math.min(...appliquer([-5000, -4600, -3800], "+", sans.points))).toBeGreaterThan(0);
+  });
+
+  it("symétrique pour l'Amour : +3 000…+4 900 poussées à +5 000 : Sérénité −, aucune monture < 0", () => {
+    const r = remplissageAuRetour({ serenites: [3100, 4300, 5000], sens: "+", niveauJauge: 199900 }, ZONE_AMOUR);
+    expect(r).toMatchObject({ statut: "ok", sensConseille: "-", points: 1550 });
+    expect(ss(r.conseil)).toMatch(/dans la zone Amour \(sérénité positive\)\.$/);
+    for (const x of appliquer([3100, 4300, 5000], "-", r.points)) expect(x).toBeGreaterThanOrEqual(0);
+  });
+
+  it("propriété : un conseil « ok » ne sort jamais les montures de leur zone (Endurance / Amour, deux jauges)", () => {
+    for (const [zone, dedans] of [
+      [ZONE_ENDURANCE, (x: number) => x < 0],
+      [ZONE_AMOUR, (x: number) => x >= 0],
+    ] as const)
+      for (const sens of ["+", "-"] as SensJauge[])
+        for (const a of [-5000, -4200, -2500, -1, 0, 1, 2500, 4200, 5000])
+          for (const b of [-4800, -3000, -800, 0, 800, 3000, 4800]) {
+            const plan = serenityPlan({ serenites: [a, b], sens, niveauJauge: 0, zone });
+            if (plan.aRemplir.statut === "ok" && plan.aRemplir.sensConseille)
+              for (const x of appliquer([a, b], plan.aRemplir.sensConseille, plan.aRemplir.points)) expect(dedans(x)).toBe(true);
+            const retour = remplissageAuRetour({ serenites: [a, b], sens, niveauJauge: 10000 }, zone);
+            if (retour.statut === "ok" && retour.sensConseille)
+              for (const x of appliquer([a, b], retour.sensConseille, Math.round(retour.points))) expect(dedans(x)).toBe(true);
+          }
+  });
+
+  it("montures toutes du mauvais côté : Endurance + Sérénité + → utiliser Sérénité −", () => {
+    const plan = serenityPlan({ serenites: [500, 1500], sens: "+", niveauJauge: 10000, zone: ZONE_ENDURANCE });
+    expect(plan.aRemplir).toMatchObject({ statut: "sensIncoherent", sensConseille: "-" });
   });
 });

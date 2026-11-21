@@ -752,8 +752,8 @@ describe("version 7 (#51) : méthode de rappel mémorisée", () => {
 });
 
 describe("version 9 : notifications push retirées", () => {
-  it("la version de stockage est 9", () => {
-    expect(STORAGE_VERSION).toBe(9);
+  it("la version de stockage est au moins 9", () => {
+    expect(STORAGE_VERSION).toBeGreaterThanOrEqual(9);
   });
 
   it("migration v8 → v9 : rappel push et méthode « push » remis à null, enclos et autres rappels gardés", async () => {
@@ -780,6 +780,51 @@ describe("version 9 : notifications push retirées", () => {
   });
 });
 
+describe("version 10 (#63) : objectifs Endurance et Amour", () => {
+  it("la version de stockage est 10", () => {
+    expect(STORAGE_VERSION).toBe(10);
+  });
+
+  it("migration v9 → v10 : enclos et objectifs gardés tels quels (l'objectif n'est pas déduit de l'autre jauge)", async () => {
+    const enclos = Array.from({ length: 6 }, (_, i) => ({
+      nom: `E${i}`, jaugeSerenite: "-", niveauSerenite: 1000, saisieLe: 70 + i,
+      autreJauge: i < 3 ? "Endurance" : null, niveauAutre: i < 3 ? 5000 : 0,
+      objectif: i === 1 ? "maturite" : "aucun",
+      rappel: i === 2 ? { methode: "agenda", at: 777 } : null,
+    }));
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 9, state: { ...fixture.data, enclos } }));
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(false);
+    expect(st().enclos.map((e) => e.objectif)).toEqual(["aucun", "maturite", "aucun", "aucun", "aucun", "aucun"]);
+    expect(st().enclos.map((e) => e.saisieLe)).toEqual([70, 71, 72, 73, 74, 75]);
+    expect(st().enclos[2].rappel).toEqual({ methode: "agenda", at: 777 });
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(10);
+  });
+
+  it("« endurance » et « amour » s'enregistrent, se persistent et se relisent", async () => {
+    expect(st().setObjectif(0, "endurance")).toBe(true);
+    expect(st().setObjectif(1, "amour")).toBe(true);
+    const disque = JSON.parse(mem.getItem(STORAGE_KEY)!);
+    expect(disque.version).toBe(10);
+    expect(disque.state.enclos.slice(0, 2).map((e: any) => e.objectif)).toEqual(["endurance", "amour"]);
+    await useStore.persist.rehydrate();
+    expect(st().enclos.slice(0, 2).map((e) => e.objectif)).toEqual(["endurance", "amour"]);
+    /* l'export les contient aussi */
+    expect(JSON.parse(st().exportJSON()).data.enclos[1].objectif).toBe("amour");
+  });
+
+  it("une appli plus ancienne voit ces données comme futures : lecture seule, l'objectif « endurance » n'est pas écrasé", async () => {
+    /* même rapport que v9 face à v10 : données d'une version supérieure au code courant */
+    const enclos = defaultAppData().enclos.map((e, i) => (i === 0 ? { ...e, saisieLe: 3, objectif: "endurance" } : e));
+    const brut = JSON.stringify({ version: STORAGE_VERSION + 1, state: { ...fixture.data, enclos } });
+    mem.setItem(STORAGE_KEY, brut);
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(true);
+    st().setObjectif(0, "aucun");
+    expect(mem.getItem(STORAGE_KEY)).toBe(brut);
+  });
+});
+
 describe("version 8 (#53) : rappel agenda / Google mémorisé par enclos", () => {
   const saisi = (saisieLe: number, extra: Record<string, unknown> = {}): Record<string, unknown> => ({
     nom: "Nord", jaugeSerenite: "+", niveauSerenite: 1000, saisieLe, ...extra,
@@ -798,7 +843,7 @@ describe("version 8 (#53) : rappel agenda / Google mémorisé par enclos", () =>
     expect(st().enclos[1].saisieLe).toBe(50);
     expect(st().enclos[0].rappel).toBeNull();
     expect(st().enclos.every((e) => e.ancienRappel === null)).toBe(true);
-    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(9);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(STORAGE_VERSION);
   });
 
   it("migrateRappelsAgenda : push legacy → null, ancienRappel null, illisible → null, idempotent, argument intact", () => {
