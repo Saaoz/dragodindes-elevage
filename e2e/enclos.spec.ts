@@ -359,6 +359,10 @@ test("retour dépassé (#31) : vraie durée de retard, alerte au passé, pas d'a
   await expect(carte).toHaveAttribute("data-urgent", "true");
   await expect(carte.getByRole("alert")).not.toContainText("atteindra");
   await expect(carte.getByText(/clique « Je quitte l’enclos »/)).toBeVisible();
+  /* #64 : en retard, un conseil chiffré calculé sur l'état estimé maintenant, sous le titre */
+  await expect(carte.getByTestId("conseil-maintenant")).toHaveText(
+    /^Maintenant\s*: passe sur la jauge Sérénité − et mets 10\s000 points au total\s*: c'est le maximum avant qu'une monture atteigne −5\s000\.$/,
+  );
   await expect(carte.getByText(/Objectif déjà atteint/)).toHaveCount(0);
   await expect(carte.getByText(/pas besoin de revenir/)).toHaveCount(0);
   await expect(boutonRappel(carte)).toHaveCount(0);
@@ -396,6 +400,76 @@ test("retour dépassé (#31) : jauge vidée sans borne atteinte, toujours visibl
   await page.getByRole("link", { name: "Accueil", exact: true }).click();
   await expect(page.getByRole("link", { name: /Enclos 1.*Retour dépassé.*jauge Sérénité \+ vide depuis 21 h 50/ })).toBeVisible();
   await expect(page.getByText(/Aucune jauge de sérénité active/)).toHaveCount(0);
+});
+
+test("Tardif (#64) : aperçu en direct dans la saisie, état au bord → « À faire maintenant », jamais « Retour dépassé depuis 1 s »", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 20, 0, 0) });
+  await page.goto("/enclos");
+  await page.getByRole("region", { name: "Enclos 1" }).getByRole("button", { name: "Saisir cet enclos" }).click();
+  const apercu = page.getByTestId("apercu-saisie");
+  const annonceApercu = page.getByTestId("annonce-apercu");
+  /* la région polie existe avant son contenu ; brouillon incomplet : aperçu neutre, pas d'erreur */
+  await expect(annonceApercu).toHaveAttribute("aria-live", "polite");
+  await expect(apercu).toHaveText(/s’affichera ici/);
+  await expect(page.getByRole("form", { name: "Saisie de l'enclos" }).getByRole("alert")).toHaveCount(0);
+
+  await page.getByLabel("Nom de l'enclos").fill("Tardif");
+  await page.getByLabel("Sérénité exacte de la monture 1").fill("5000");
+  await page.getByRole("button", { name: /Ajouter une monture/ }).click();
+  await page.getByLabel("Sérénité exacte de la monture 2").fill("4800");
+  await page.getByRole("button", { name: /Ajouter une monture/ }).click();
+  await page.getByLabel("Sérénité exacte de la monture 3").fill("5000");
+  await page.getByRole("button", { name: "Sérénité +" }).click();
+  const niveau = page.getByPlaceholder("ex. 200000 ou 85k");
+  await niveau.fill("160k");
+
+  /* ce que le joueur voit en arrivant : quoi faire tout de suite, et combien */
+  await expect(apercu).toContainText("Avec cette saisie : à faire maintenant.");
+  await expect(apercu).toContainText(/Passe sur la jauge Sérénité − et mets 9\s800 points au total/);
+  /* annoncé poliment après la frappe, sans voler le focus */
+  await expect(annonceApercu).toHaveText(/^Avec cette saisie : à faire maintenant\. Passe sur la jauge Sérénité −/);
+  await expect(niveau).toBeFocused();
+
+  /* il essaie le conseil : l'aperçu donne l'heure de retour avant d'enregistrer, à chaque frappe */
+  await page.getByRole("button", { name: "Sérénité −" }).click();
+  await niveau.fill("9800");
+  await expect(apercu).toContainText(/Avec cette saisie : reviens avant 22\sh\s43\./);
+  await niveau.pressSequentially("0");
+  await expect(apercu).not.toContainText(/22\sh\s43/);
+  await expect(niveau).toBeFocused();
+
+  /* … mais enregistre ce qu'il voit (issue : Sérénité + 160k) */
+  await page.getByRole("button", { name: "Sérénité +" }).click();
+  await niveau.fill("160k");
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+
+  const carte = page.getByRole("region", { name: "Tardif" });
+  await expect(carte.getByText("À faire maintenant", { exact: true })).toBeVisible();
+  await expect(carte.getByText(/^La jauge Sérénité \+ pousse la monture 1 à \+5\s000\.$/)).toBeVisible();
+  await expect(carte.getByTestId("conseil-maintenant")).toHaveText(
+    /^Passe sur la jauge Sérénité − et mets 9\s800 points au total\s*: c'est le maximum avant qu'une monture atteigne −5\s000\.$/,
+  );
+  await expect(carte.getByText(/Retour dépassé/)).toHaveCount(0);
+  await expect(carte.getByText(/Retourne à l’enclos/)).toHaveCount(0);
+  await expect(carte.getByRole("alert")).toContainText(/si rien ne change/);
+  await expect(carte.getByRole("alert")).not.toContainText(/si tu ne reviens pas/);
+  await expect(carte).toHaveAttribute("data-urgent", "true");
+  /* pas de rappel dans le passé (#31) */
+  await expect(boutonRappel(carte)).toHaveCount(0);
+  await expect(page.getByTestId("annonce-enclos")).toHaveText(/^Tardif enregistré : à faire maintenant\. Passe sur la jauge Sérénité − et mets 9\s800 points/);
+  await expect(page).toHaveTitle(/^À faire · Tardif · Mes enclos$/);
+  await expect(page.getByRole("heading", { level: 2 }).first()).toHaveText("Tardif");
+
+  /* quelques secondes plus tard : toujours pas de « retour dépassé » */
+  await page.clock.fastForward(5_000);
+  await expect(carte.getByText("À faire maintenant", { exact: true })).toBeVisible();
+  await expect(carte.getByText(/Retour dépassé/)).toHaveCount(0);
+
+  await page.getByRole("link", { name: "Accueil", exact: true }).click();
+  const lien = page.getByRole("link", { name: /Tardif.*À faire maintenant/ });
+  await expect(lien).toBeVisible();
+  await expect(lien).toHaveAttribute("data-urgent", "true");
+  await expect(lien).not.toContainText(/Retour dépassé|depuis/);
 });
 
 /* #38 : deux onglets du même navigateur ne doivent jamais s'écraser mutuellement. */

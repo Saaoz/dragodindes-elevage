@@ -9,6 +9,8 @@ import { VisageIcone } from "@/components/commun/visage";
 import { IconeJauge } from "@/components/enclos/icone-jauge";
 import { CAPACITE_JAUGE } from "@/lib/data";
 import {
+  APERCU_NEUTRE,
+  apercuSaisie,
   changerAutreJauge,
   enclosDeBrouillon,
   formatSerenite,
@@ -16,6 +18,7 @@ import {
   OPTIONS_OBJECTIF,
   parseNombre,
   VISAGES,
+  type ApercuSaisie,
   type Brouillon,
 } from "@/lib/enclos";
 import { AUTRES_JAUGES, type Enclos } from "@/lib/schema";
@@ -37,16 +40,34 @@ const ANNEAU_VISAGE: Record<string, string> = {
   vert: "ring-green-600 dark:ring-green-400",
 };
 
+/* Délai avant d'annoncer l'aperçu au lecteur d'écran : on attend que le joueur ait fini de taper (#64). */
+const DELAI_ANNONCE_APERCU_MS = 1200;
+const texteApercu = (a: ApercuSaisie) => (a.conseil ? `${a.titre} ${a.conseil}` : a.titre);
+
 export function EnclosForm({
   initial,
+  maintenantMs,
   onSave,
   onCancel,
 }: {
   initial: Brouillon;
+  /* horloge du panneau (chaque seconde) : l'aperçu suit l'heure */
+  maintenantMs: number;
   onSave: (e: Enclos) => void;
   onCancel: () => void;
 }) {
-  const [b, setB] = useState<Brouillon>(initial);
+  /* brouillon d'ouverture (le parent en recrée un à chaque seconde : on garde le premier) */
+  const [depart] = useState<Brouillon>(initial);
+  const [b, setB] = useState<Brouillon>(depart);
+  /* Aperçu en direct (#64) : recalculé à chaque frappe. La version lue par le lecteur d'écran n'est mise à jour
+     qu'après une pause de frappe (pas une annonce par touche), et pas à l'ouverture (le focus annonce le premier champ). */
+  const apercu = apercuSaisie(b, maintenantMs);
+  const [annonceApercu, setAnnonceApercu] = useState(() => texteApercu(apercuSaisie(depart, maintenantMs)));
+  useEffect(() => {
+    if (b === depart) return;
+    const id = setTimeout(() => setAnnonceApercu(texteApercu(apercuSaisie(b, Date.now()))), DELAI_ANNONCE_APERCU_MS);
+    return () => clearTimeout(id);
+  }, [b, depart]);
   const [erreurs, setErreurs] = useState<string[]>([]);
   /* objectif choisi à la main dans cette saisie : changer l'autre jauge ne le remplace plus */
   const [objectifChoisi, setObjectifChoisi] = useState(false);
@@ -223,6 +244,22 @@ export function EnclosForm({
           options={OPTIONS_OBJECTIF}
         />
       </fieldset>
+
+      {/* Aperçu visible, mis à jour à chaque frappe ; le lecteur d'écran lit sa copie polie ci-dessous (#64). */}
+      <div
+        className={cn(
+          "flex flex-col gap-1 rounded-lg p-3 text-sm",
+          apercu === APERCU_NEUTRE ? "bg-muted text-muted-foreground" : "bg-primary/10",
+        )}
+        data-testid="apercu-saisie"
+        aria-hidden
+      >
+        <p className="font-medium">{apercu.titre}</p>
+        {apercu.conseil && <p>{apercu.conseil}</p>}
+      </div>
+      <p role="status" aria-live="polite" aria-atomic="true" className="sr-only" data-testid="annonce-apercu">
+        {annonceApercu}
+      </p>
 
       {erreurs.length > 0 && (
         <ul role="alert" className="list-disc rounded-lg bg-destructive/10 p-3 pl-6 text-sm text-destructive">

@@ -11,6 +11,7 @@ import {
   type Objectif,
 } from "@/lib/schema";
 import {
+  bornerSerenite,
   deplacer,
   etatDeEnclos,
   nomZone,
@@ -25,6 +26,7 @@ import {
   ZONE_MATURITE,
   type PlanSerenite,
   type EtatEstime,
+  type EtatSerenite,
   type EvenementSerenite,
   type SensJauge,
   type ZoneSerenite,
@@ -250,11 +252,18 @@ export interface VueEnclos {
   plan: PlanSerenite & { etat: EtatEstime };
   retour: RetourEnclos | null;
   alerte: AlerteEnclos | null;
-  /** Retour dépassé : secondes écoulées depuis l'heure de retour (0 pile à l'heure) ; null avant (#31). */
+  /** Retour dépassé : secondes écoulées depuis l'heure de retour (0 pile à l'heure) ; null avant (#31),
+      et null aussi quand l'état saisi était déjà au bord (`aFaireMaintenant`). */
   retardS: number | null;
-  /** Conseil de remplissage affiché sur la carte, calculé sur l'état À L'HEURE DE RETOUR (stable, #33) :
-      si la jauge pousse encore une monture au bord, il passe sur la jauge opposée (#45) ;
-      null si le retour est dépassé (voir `CONSEIL_RETARD`). */
+  /** L'état saisi est déjà au bord (#64) : une monture sort de la zone ou atteint ±5 000 moins de
+      `SEUIL_A_FAIRE_MAINTENANT_S` après la saisie, ou est déjà hors de la zone avec la jauge qui l'en éloigne.
+      Ce n'est pas un retard (le joueur est à l'enclos) : la carte dit quoi faire tout de suite. */
+  aFaireMaintenant: boolean;
+  /** Conseil de remplissage affiché sur la carte :
+      - avant l'heure de retour, calculé sur l'état À L'HEURE DE RETOUR (stable, #33) ; si la jauge pousse encore
+        une monture au bord, il passe sur la jauge opposée (#45) : « À ton retour : … » ;
+      - à faire maintenant ou retour dépassé (#64), calculé sur l'état ESTIMÉ MAINTENANT avec la même règle :
+        « Passe sur la jauge … » ou « Maintenant : passe sur la jauge … ». */
   conseil: string | null;
   /** Heure (ms) à laquelle la jauge de sérénité est (ou sera) vide, depuis la saisie ; null sans jauge. */
   jaugeVideMs: number | null;
@@ -268,11 +277,35 @@ export interface VueEnclos {
     Au-delà, la carte et la ligne de l'accueil restent neutres, même si une monture finira à ±5 000. */
 export const SEUIL_URGENCE_S = 30 * 60;
 
-/** Vrai si l'enclos demande une action immédiate : retour dépassé, ou dans moins de `SEUIL_URGENCE_S`. */
-export function estUrgent(vue: Pick<VueEnclos, "retour" | "retardS">, maintenantMs: number): boolean {
+/** Vrai si l'enclos demande une action immédiate : à faire maintenant, retour dépassé, ou dans moins de `SEUIL_URGENCE_S`. */
+export function estUrgent(vue: Pick<VueEnclos, "retour" | "retardS" | "aFaireMaintenant">, maintenantMs: number): boolean {
   if (!vue.retour) return false;
-  return vue.retardS !== null || (vue.retour.quandMs - maintenantMs) / 1000 < SEUIL_URGENCE_S;
+  return vue.aFaireMaintenant || vue.retardS !== null || (vue.retour.quandMs - maintenantMs) / 1000 < SEUIL_URGENCE_S;
 }
+
+/** Seuil « à faire maintenant » (#64) : un événement (sortie de zone, ±5 000) à moins d'une minute de la saisie veut
+    dire que le joueur a saisi un état déjà au bord. Une minute couvre le temps de lire les valeurs en jeu et de les
+    taper (l'heure de saisie est celle du clic sur « Enregistrer »), et aucun rappel ne sert à moins d'une minute (la
+    plus petite marge non nulle est de 5 min) : on lui dit d'agir tout de suite plutôt que « Reviens avant » ou
+    « Retour dépassé depuis 1 s ». Une jauge presque vide n'est pas concernée : elle ne fait de tort à aucune monture. */
+export const SEUIL_A_FAIRE_MAINTENANT_S = 60;
+
+/** Une monture est déjà hors de la zone, du côté où la jauge active la pousse (ex. +3 000 en Sérénité + pour
+    « Rester en Maturité ») : `serenityPlan` ne date pas cette sortie (elle a eu lieu avant la saisie). On la date de
+    la saisie (temps 0) pour que la carte dise d'agir maintenant, au lieu d'attendre la borne ±5 000 (#64).
+    Côté ±5 000 (Amour en Sérénité +, Endurance en Sérénité −), la borne reste l'événement. */
+function sortieAvantSaisie(saisi: EtatSerenite, zone: ZoneSerenite | undefined): EvenementSerenite | null {
+  if (!zone || saisi.sens === null || saisi.niveauJauge <= 0 || !saisi.serenites.length) return null;
+  const s = saisi.sens === "+" ? 1 : -1;
+  const limite = s > 0 ? zone.max : -zone.min;
+  if (limite >= SERENITE_MAX) return null;
+  const orient = saisi.serenites.map((v) => s * bornerSerenite(v));
+  const max = Math.max(...orient);
+  if (max <= limite) return null;
+  return { type: "sortieZone", temps: 0, points: 0, monture: orient.indexOf(max), valeur: s * limite, niveauJauge: saisi.niveauJauge };
+}
+
+const SANS_RETOUR = / : pas besoin de revenir avant qu.elle soit vide\.$/;
 
 const TYPES_RETOUR = new Set(["sortieZone", "premiereBorne", "jaugeVide"]);
 
@@ -361,9 +394,14 @@ export function vueEnclos(
   const depuisSaisie = saisieLe !== null && enclos.jaugeSerenite !== null ? planEnclos(enclos, saisieLe, options) : null;
   const heure = (temps: number) => Math.round((saisieLe ?? maintenantMs) + temps * 1000);
 
-  const ev = depuisSaisie?.evenements.find((e) => TYPES_RETOUR.has(e.type));
+  const ev =
+    (depuisSaisie && sortieAvantSaisie(etatDeEnclos(enclos), options.zone)) ||
+    depuisSaisie?.evenements.find((e) => TYPES_RETOUR.has(e.type));
   const retour = ev ? { evenement: ev, quandMs: heure(ev.temps) } : null;
-  const retardS = retour && maintenantMs >= retour.quandMs ? (maintenantMs - retour.quandMs) / 1000 : null;
+  /* état saisi déjà au bord (#64) : pas un retard, une action à faire tout de suite */
+  const aFaireMaintenant =
+    retour !== null && retour.evenement.type !== "jaugeVide" && retour.evenement.temps < SEUIL_A_FAIRE_MAINTENANT_S;
+  const retardS = !aFaireMaintenant && retour && maintenantMs >= retour.quandMs ? (maintenantMs - retour.quandMs) / 1000 : null;
 
   const borne = depuisSaisie?.evenements.find((e) => e.type === "premiereBorne");
   const gaspille = borne && borne.monture !== null ? (depuisSaisie?.gaspillage[borne.monture] ?? 0) : 0;
@@ -383,32 +421,37 @@ export function vueEnclos(
   const jaugeVideMs = depuisSaisie && depuisSaisie.tempsVide > 0 ? heure(depuisSaisie.tempsVide) : null;
   const autreVideMs =
     enclos.autreJauge && saisieLe !== null ? Math.round(saisieLe + tempsVidage(enclos.niveauAutre) * 1000) : null;
-  const alerteJauge = calculerAlerteJauge(enclos, maintenantMs, autreVideMs, heure, retardS === null ? retour : null);
+  const alerteJauge = calculerAlerteJauge(enclos, maintenantMs, autreVideMs, heure, retardS === null && !aFaireMaintenant ? retour : null);
 
   /* Conseil de remplissage (#33) : il ne sert qu'une fois sur place, donc il est calculé à l'heure de retour
      (il ne change plus chaque seconde) et ne dit jamais « pas besoin de revenir » à côté d'une heure de retour. */
   let conseil: string | null = null;
-  if (retardS === null) {
-    /* sans jauge active la carte le dit déjà : pas de seconde phrase */
-    if (!retour) conseil = plan.etat.sens === null && !options.zone ? null : plan.aRemplir.conseil;
-    else {
-      /* État exact au moment de l'événement (points consommés depuis la saisie, sans arrondi d'heure).
-         Montures stables : calcul « jauge vide » ; encore poussées au bord : jauge opposée (#45). */
-      const saisi = etatDeEnclos(enclos);
-      const etatRetour = {
-        serenites: saisi.serenites.map((s) => deplacer(s, saisi.sens, retour.evenement.points)),
-        sens: saisi.sens,
-        niveauJauge: retour.evenement.niveauJauge,
-      };
-      const auRetour = remplissageAuRetour(etatRetour, options.zone);
-      const sansConseil = auRetour.statut === "dejaAtteint" && !options.zone;
-      const c = sansConseil ? "" : auRetour.conseil.replace(/ : pas besoin de revenir avant qu.elle soit vide\.$/, ".");
-      conseil = c ? `À ton retour : ${c.charAt(0).toLowerCase()}${c.slice(1)}` : "";
-      if (depuisSaisie && depuisSaisie.aRemplir.excedent > 0)
-        conseil += `${conseil ? " " : ""}La jauge contient plus de points que nécessaire : change de jauge dès ton retour.`;
-    }
+  /* sans jauge active la carte le dit déjà : pas de seconde phrase */
+  if (!retour) conseil = plan.etat.sens === null && !options.zone ? null : plan.aRemplir.conseil;
+  else {
+    /* Même règle partout (#45) : montures stables → calcul « jauge vide » ; encore poussées au bord → jauge opposée.
+       - avant l'heure de retour : état exact au moment de l'événement (points consommés depuis la saisie) ;
+       - événement passé (retard, ou état saisi déjà au bord, #64) : état ESTIMÉ MAINTENANT. */
+    const passe = maintenantMs >= retour.quandMs;
+    const saisi = etatDeEnclos(enclos);
+    const etat = passe
+      ? plan.etat
+      : {
+          serenites: saisi.serenites.map((s) => deplacer(s, saisi.sens, retour.evenement.points)),
+          sens: saisi.sens,
+          niveauJauge: retour.evenement.niveauJauge,
+        };
+    const r = remplissageAuRetour(etat, options.zone);
+    const c = r.statut === "dejaAtteint" && !options.zone ? "" : r.conseil.replace(SANS_RETOUR, ".");
+    const minuscule = `${c.charAt(0).toLowerCase()}${c.slice(1)}`;
+    if (!c) conseil = "";
+    else if (aFaireMaintenant) conseil = majuscule(c);
+    else if (retardS !== null) conseil = `Maintenant : ${minuscule}`;
+    else conseil = `À ton retour : ${minuscule}`;
+    if (!aFaireMaintenant && retardS === null && depuisSaisie && depuisSaisie.aRemplir.excedent > 0)
+      conseil += `${conseil ? " " : ""}La jauge contient plus de points que nécessaire : change de jauge dès ton retour.`;
   }
-  return { index, objectif, plan, retour, alerte, retardS, conseil: conseil || null, jaugeVideMs, autreVideMs, alerteJauge };
+  return { index, objectif, plan, retour, alerte, retardS, aFaireMaintenant, conseil: conseil || null, jaugeVideMs, autreVideMs, alerteJauge };
 }
 
 /* ---------- retour dépassé (#31) ---------- */
@@ -423,6 +466,13 @@ export function raisonRetour(vue: VueEnclos, maintenantMs: number): string | nul
   const m = (ev.monture ?? 0) + 1;
   const zone = ZONES[vue.objectif];
   const laZone = zone ? nomZone(zone) : "la zone voulue";
+  if (vue.aFaireMaintenant) {
+    /* au présent : le joueur vient de saisir cet état (#64) */
+    const jauge = `la jauge ${nomJauge(vue.plan.etat.sens)}`;
+    return ev.type === "premiereBorne"
+      ? `${jauge} pousse la monture ${m} à ${formatSerenite(ev.valeur ?? 0)}`
+      : `${jauge} fait sortir la monture ${m} de ${laZone}`;
+  }
   if (vue.retardS === null) {
     switch (ev.type) {
       case "sortieZone":
@@ -448,6 +498,8 @@ export function raisonRetour(vue: VueEnclos, maintenantMs: number): string | nul
 
 /** Annonce vocale (aria-live) après « Enregistrer » : l'heure de retour, ou pourquoi il n'y en a pas. */
 export function annonceEnregistre(vue: VueEnclos, nom: string, maintenantMs: number): string {
+  if (vue.aFaireMaintenant)
+    return `${nom} enregistré : à faire maintenant. ${vue.conseil ?? `${majuscule(raisonRetour(vue, maintenantMs) ?? "")}.`}`;
   if (vue.retour) return `${nom} enregistré : reviens avant ${formatHeure(vue.retour.quandMs, maintenantMs)}.`;
   return `${nom} enregistré : ${vue.plan.etat.sens ? "jauge de sérénité vide à la saisie" : "aucune jauge de sérénité active"}, pas d’heure de retour à prévoir.`;
 }
@@ -456,10 +508,42 @@ export function annonceEnregistre(vue: VueEnclos, nom: string, maintenantMs: num
 export const CONSEIL_RETARD =
   "Retourne à l’enclos, regarde la sérénité des montures et le niveau des jauges, puis clique « Je quitte l’enclos » : une nouvelle heure de retour sera calculée.";
 
+/** Aperçu de la saisie en cours (#64) : l'heure de retour et le conseil qu'on obtiendrait en enregistrant maintenant
+    le brouillon (même calcul que la carte, avec l'objectif du brouillon). Brouillon incomplet ou invalide : aperçu
+    neutre (les erreurs ne s'affichent qu'à l'enregistrement). */
+export interface ApercuSaisie {
+  titre: string;
+  conseil: string | null;
+}
+export const APERCU_NEUTRE: ApercuSaisie = {
+  titre: "L’heure de retour s’affichera ici dès que la saisie sera complète.",
+  conseil: null,
+};
+export function apercuSaisie(b: Brouillon, maintenantMs: number): ApercuSaisie {
+  const r = enclosDeBrouillon(b, maintenantMs);
+  if (!r.ok) return APERCU_NEUTRE;
+  const v = vueEnclos(r.enclos, 0, maintenantMs);
+  const titre = v.aFaireMaintenant
+    ? "à faire maintenant"
+    : v.retour
+      ? `reviens avant ${formatHeure(v.retour.quandMs, maintenantMs)}`
+      : "pas d’heure de retour à prévoir";
+  return { titre: `Avec cette saisie : ${titre}.`, conseil: v.conseil };
+}
+
+/** Quoi faire après le conseil quand l'état saisi était déjà au bord (#64) : le joueur est à l'enclos. */
+export const CONSEIL_MAINTENANT =
+  "Ensuite, clique « Je quitte l’enclos » et saisis ce que tu vois : une nouvelle heure de retour sera calculée.";
+
 /** Texte de l'alerte ±5 000 : au futur avant la borne, au passé (avec les points déjà gaspillés) après.
     `memeEvenement` : l'alerte décrit le même événement que le titre de la carte (c'est lui qui porte l'heure) :
-    on ne la répète pas, l'encadré ne garde que les points gaspillés. */
-export function texteAlerte(alerte: AlerteEnclos, maintenantMs: number, memeEvenement = false): string {
+    on ne la répète pas, l'encadré ne garde que les points gaspillés. `aFaireMaintenant` (#64) : le joueur est sur
+    place, on ne lui parle pas de revenir. */
+export function texteAlerte(alerte: AlerteEnclos, maintenantMs: number, memeEvenement = false, aFaireMaintenant = false): string {
+  if (memeEvenement && aFaireMaintenant)
+    return alerte.gaspilleDeja > 0
+      ? `${formatNombre(alerte.gaspilleDeja)} points de jauge déjà gaspillés pour elle, jusqu’à ${formatNombre(alerte.gaspille)} si rien ne change.`
+      : `jusqu’à ${formatNombre(alerte.gaspille)} points de jauge seront gaspillés pour elle si rien ne change.`;
   const h = memeEvenement ? "" : ` à ${formatHeure(alerte.quandMs, maintenantMs)}`;
   const qui = `la monture ${alerte.monture + 1}`;
   if (!alerte.passee)

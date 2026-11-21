@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  annonceEnregistre,
+  APERCU_NEUTRE,
+  apercuSaisie,
+  CONSEIL_MAINTENANT,
+  SEUIL_A_FAIRE_MAINTENANT_S,
   brouillonDe,
   alerteSurRetour,
   changerAutreJauge,
@@ -407,10 +412,13 @@ describe("conseil de remplissage de la carte (#33)", () => {
       }
   });
 
-  it("retour dépassé (#31) : pas de conseil de remplissage, seul CONSEIL_RETARD s'applique", () => {
+  it("retour dépassé (#64) : conseil chiffré sur l'état estimé maintenant, puis CONSEIL_RETARD", () => {
+    /* à 23 h 00, la monture est à +5 000 et la Sérénité + pousse encore : Sérénité −, 10 000 points au plus */
     const v = vueEnclos(enclosTest([-3000], 200000), 0, T0 + 2 * 3600_000);
     expect(v.retardS).not.toBeNull();
-    expect(v.conseil).toBeNull();
+    expect(ss(v.conseil!)).toBe(
+      "Maintenant : passe sur la jauge Sérénité − et mets 10 000 points au total : c'est le maximum avant qu'une monture atteigne −5 000.",
+    );
     expect(CONSEIL_RETARD).toMatch(/Je quitte l’enclos/);
   });
 });
@@ -469,13 +477,17 @@ describe("conseil au retour au bord de la zone (#45)", () => {
     expect(vueEnclos(e, 0, (vueEnclos(e, 0, T0).retour?.quandMs ?? 0) - 1).conseil).toBe(a);
   });
 
-  it("retour dépassé (#31) : toujours pas de conseil de remplissage, même au bord de la zone", () => {
+  it("retour dépassé (#64) : conseil de jauge opposée calculé sur l'état estimé maintenant", () => {
     const e = maturite([-1000, 1000], 50000);
     const quand = vueEnclos(e, 0, T0).retour!.quandMs;
-    for (const t of [quand, quand + 3600 * S]) {
+    /* pile à l'heure : [0 ; +2 000] → 1 000 points ; 1 h plus tard (tier 1) : [+3 600 ; +5 000] → 4 300 points */
+    for (const [t, points] of [[quand, "1 000"], [quand + 3600 * S, "4 300"]] as const) {
       const v = vueEnclos(e, 0, t);
       expect(v.retardS).not.toBeNull();
-      expect(v.conseil).toBeNull();
+      expect(v.aFaireMaintenant).toBe(false);
+      expect(ss(v.conseil!)).toBe(
+        `Maintenant : passe sur la jauge Sérénité − et mets ${points} points au total pour recentrer tes montures dans la zone Maturité.`,
+      );
     }
   });
 });
@@ -580,7 +592,9 @@ describe("objectifs Endurance et Amour (#63)", () => {
   it("issue : +3 000 / +4 200 / +4 900 en Sérénité +, objectif Amour : le conseil ne fait passer aucune monture sous 0", () => {
     const e = avec([3000, 4200, 4900], "+", 200000, { autreJauge: "Amour", niveauAutre: 90000, objectif: "amour" });
     const v = vueEnclos(e, 0, T0);
-    expect(ss(v.conseil!)).toMatch(/passe sur la jauge Sérénité − et mets 1 550 points au total pour recentrer tes montures dans la zone Amour/);
+    /* +4 900 en Sérénité + pleine : +5 000 dans 25 s, c'est « à faire maintenant » (#64) ; conseil à l'instant de la borne */
+    expect(v.aFaireMaintenant).toBe(true);
+    expect(ss(v.conseil!)).toMatch(/^Passe sur la jauge Sérénité − et mets 1 550 points au total pour recentrer tes montures dans la zone Amour/);
     const auRetour = [3000, 4200, 4900].map((s) => deplacer(s, "+", v.retour!.evenement.points));
     for (const s of auRetour) expect(deplacer(s, "-", pointsDuConseil(ss(v.conseil!)))).toBeGreaterThanOrEqual(0);
   });
@@ -738,5 +752,146 @@ describe("enclos de démo cohérents (#63)", () => {
     expect(vues[1].v.alerteJauge).toMatchObject({ jauge: "Amour", deja: false, surRetour: true });
     expect(vues[1].v.plan.etat.serenites.every((s) => s >= 0)).toBe(true);
     expect(vues[2].v.alerteJauge).toBeNull();
+  });
+});
+
+describe("retour en retard et état saisi déjà au bord (#64)", () => {
+  const S = 1000;
+  const enclos = (serenites: number[], sens: "+" | "-" | null, niveau: number, objectif = "aucun", nom = "Tardif") =>
+    enclosSchema.parse({ nom, montures: serenites.map((serenite) => ({ serenite })), jaugeSerenite: sens, niveauSerenite: niveau, saisieLe: T0, objectif });
+  /* l'issue : le joueur arrive en retard et saisit ce qu'il voit */
+  const tardif = enclos([5000, 4800, 5000], "+", 160000);
+  const CONSEIL_TARDIF = "Passe sur la jauge Sérénité − et mets 9 800 points au total : c'est le maximum avant qu'une monture atteigne −5 000.";
+
+  it("seuil : une minute", () => {
+    expect(SEUIL_A_FAIRE_MAINTENANT_S).toBe(60);
+  });
+
+  it("Tardif : pas de « retour dépassé depuis 1 s », à faire maintenant avec le conseil de jauge opposée", () => {
+    for (const t of [0, 1, 60, 3600]) {
+      const v = vueEnclos(tardif, 0, T0 + t * S);
+      expect(v.retour).toMatchObject({ evenement: { type: "premiereBorne" }, quandMs: T0 });
+      expect(v.aFaireMaintenant).toBe(true);
+      expect(v.retardS).toBeNull();
+      expect(estUrgent(v, T0 + t * S)).toBe(true);
+      expect(ss(raisonRetour(v, T0 + t * S)!)).toBe("la jauge Sérénité + pousse la monture 1 à +5 000");
+      expect(ss(v.conseil!)).toMatch(/^Passe sur la jauge Sérénité − et mets [\d ]+ points au total/);
+    }
+    const v = vueEnclos(tardif, 0, T0);
+    expect(ss(v.conseil!)).toBe(CONSEIL_TARDIF);
+    expect(ss(CONSEIL_MAINTENANT)).toMatch(/^Ensuite, clique « Je quitte l’enclos »/);
+    expect(CONSEIL_MAINTENANT).not.toMatch(/Retourne/);
+    /* l'alerte ne dit pas « si tu ne reviens pas » au joueur qui est sur place */
+    expect(alerteSurRetour(v)).toBe(true);
+    expect(ss(texteAlerte(v.alerte!, T0, true, true))).toBe("jusqu’à 160 000 points de jauge seront gaspillés pour elle si rien ne change.");
+    const tard = vueEnclos(tardif, 0, T0 + 600 * S);
+    expect(ss(texteAlerte(tard.alerte!, T0 + 600 * S, true, true))).toMatch(/^[\d ]+ points de jauge déjà gaspillés pour elle, jusqu’à 160 000 si rien ne change\.$/);
+  });
+
+  it("Tardif : annonce après « Enregistrer » sans heure de retour dans le passé", () => {
+    const v = vueEnclos(tardif, 0, T0);
+    expect(ss(annonceEnregistre(v, "Tardif", T0))).toBe(`Tardif enregistré : à faire maintenant. ${CONSEIL_TARDIF}`);
+    expect(annonceEnregistre(v, "Tardif", T0)).not.toMatch(/reviens avant/);
+  });
+
+  it("Tardif : en tête du tri par urgence, devant un retour à venir", () => {
+    const liste = defaultEnclos();
+    liste[0] = enclos([-3000], "+", 200000, "aucun", "À venir");
+    liste[4] = tardif;
+    expect(enclosUrgents(liste, T0).map((x) => x.index)).toEqual([4, 0]);
+  });
+
+  it("seuil d'une minute : 59 s → à faire maintenant ; 60 s et 61 s → heure de retour, puis vrai retard", () => {
+    /* tier 1 (1 pt/s) : +4 941 atteint +5 000 en 59 s */
+    expect(vueEnclos(enclos([4941], "+", 50000), 0, T0).aFaireMaintenant).toBe(true);
+    for (const s of [4940, 4939]) {
+      const e = enclos([s], "+", 50000);
+      const v = vueEnclos(e, 0, T0);
+      expect(v.aFaireMaintenant).toBe(false);
+      expect(v.retardS).toBeNull();
+      expect(ss(raisonRetour(v, T0)!)).toBe("une monture atteint ±5 000");
+      expect(vueEnclos(e, 0, v.retour!.quandMs + S).retardS).toBe(1);
+    }
+  });
+
+  it("monture déjà hors de la zone, la jauge l'en éloigne : à faire maintenant (au lieu d'attendre ±5 000)", () => {
+    const v = vueEnclos(enclos([3000], "+", 50000, "maturite"), 0, T0);
+    expect(v.retour).toMatchObject({ evenement: { type: "sortieZone", points: 0, monture: 0 }, quandMs: T0 });
+    expect(v.aFaireMaintenant).toBe(true);
+    expect(ss(raisonRetour(v, T0)!)).toBe("la jauge Sérénité + fait sortir la monture 1 de la zone Maturité");
+    expect(ss(v.conseil!)).toBe("Passe sur la jauge Sérénité − et mets 3 000 points au total pour recentrer tes montures dans la zone Maturité.");
+    /* Endurance : une monture à 0 en Sérénité + ; Amour : une monture à −300 en Sérénité − */
+    expect(vueEnclos(enclos([-3000, 0], "+", 50000, "endurance"), 0, T0).aFaireMaintenant).toBe(true);
+    const amour = vueEnclos(enclos([2000, -300], "-", 50000, "amour"), 0, T0);
+    expect(amour.aFaireMaintenant).toBe(true);
+    expect(ss(raisonRetour(amour, T0)!)).toBe("la jauge Sérénité − fait sortir la monture 2 de la zone Amour (sérénité positive)");
+    expect(ss(amour.conseil!)).toMatch(/^Passe sur la jauge Sérénité \+ et mets [\d ]+ points au total pour recentrer tes montures dans la zone Amour/);
+  });
+
+  it("pas « à faire maintenant » : monture hors zone que la jauge y ramène, sans jauge, jauge presque vide", () => {
+    expect(vueEnclos(enclos([-3000], "+", 50000, "maturite"), 0, T0).aFaireMaintenant).toBe(false);
+    expect(vueEnclos(enclos([3000], null, 0, "maturite"), 0, T0).aFaireMaintenant).toBe(false);
+    expect(vueEnclos(enclos([3000], "+", 0, "maturite"), 0, T0).aFaireMaintenant).toBe(false);
+    /* 30 points : jauge vide en 30 s, aucun tort pour les montures */
+    const presqueVide = vueEnclos(enclos([0], "+", 30), 0, T0);
+    expect(presqueVide.retour?.evenement.type).toBe("jaugeVide");
+    expect(presqueVide.aFaireMaintenant).toBe(false);
+    /* Amour en Sérénité + : la borne +5 000 reste l'événement */
+    expect(vueEnclos(enclos([4000], "+", 50000, "amour"), 0, T0).aFaireMaintenant).toBe(false);
+  });
+
+  it("retour dépassé, jauge vidée : conseil « Maintenant » calculé sur l'état estimé (zone), sans « pas besoin de revenir »", () => {
+    /* −4 000 et 3 000 points : jauge vide à 21 h 50 à −1 000 ; 1 000 points de Sérénité + la recentrent dans la Maturité */
+    const v = vueEnclos(enclos([-4000], "+", 3000, "maturite"), 0, T0 + 2 * 3600 * S);
+    expect(v.retardS).not.toBeNull();
+    expect(ss(v.conseil!)).toBe("Maintenant : mets 1 000 points au total dans la jauge Sérénité +.");
+    const sansZone = vueEnclos(enclos([-4000], "+", 3000), 0, T0 + 2 * 3600 * S);
+    expect(sansZone.conseil).toBeNull();
+  });
+});
+
+describe("aperçu de la saisie dans le formulaire (#64)", () => {
+  const brouillon = (p: Partial<Parameters<typeof apercuSaisie>[0]> = {}) => ({
+    nom: "Tardif",
+    serenites: ["5000", "4800", "5000"],
+    sens: "+" as const,
+    niveau: "160k",
+    autre: null,
+    niveauAutre: "",
+    objectif: "aucun" as const,
+    ...p,
+  });
+
+  it("brouillon incomplet ou illisible : aperçu neutre, sans message d'erreur", () => {
+    for (const b of [brouillon({ serenites: [""] }), brouillon({ serenites: ["abc"] }), brouillon({ niveau: "" }), brouillon({ serenites: ["-"] })]) {
+      const a = apercuSaisie(b, T0);
+      expect(a).toBe(APERCU_NEUTRE);
+      expect(a.titre).not.toMatch(/nombre|invalide|indique/i);
+    }
+  });
+
+  it("Tardif tel que vu en arrivant : à faire maintenant, conseil de jauge opposée", () => {
+    const a = apercuSaisie(brouillon(), T0);
+    expect(ss(a.titre)).toBe("Avec cette saisie : à faire maintenant.");
+    expect(ss(a.conseil!)).toBe("Passe sur la jauge Sérénité − et mets 9 800 points au total : c'est le maximum avant qu'une monture atteigne −5 000.");
+  });
+
+  it("le joueur suit le conseil (Sérénité −, 9 800) : l'heure de retour s'affiche avant d'enregistrer", () => {
+    /* 9 800 points en tier 1 : 2 h 43 min 20 s */
+    const a = apercuSaisie(brouillon({ sens: "-", niveau: "9800" }), T0);
+    expect(ss(a.titre)).toBe("Avec cette saisie : reviens avant 23 h 43.");
+    expect(a.conseil ?? "").not.toMatch(/pas besoin de revenir/);
+  });
+
+  it("l'aperçu suit l'objectif du brouillon", () => {
+    const b = brouillon({ serenites: ["3000"], niveau: "50000" });
+    expect(ss(apercuSaisie({ ...b, objectif: "maturite" }, T0).titre)).toBe("Avec cette saisie : à faire maintenant.");
+    expect(ss(apercuSaisie({ ...b, objectif: "maturite" }, T0).conseil!)).toMatch(/zone Maturité/);
+    expect(ss(apercuSaisie(b, T0).titre)).toMatch(/^Avec cette saisie : reviens avant \d\d h \d\d\.$/);
+    expect(ss(apercuSaisie(b, T0).conseil!)).toMatch(/^À ton retour : /);
+  });
+
+  it("sans jauge de sérénité : pas d'heure de retour à prévoir", () => {
+    expect(ss(apercuSaisie(brouillon({ sens: null, niveau: "" }), T0).titre)).toBe("Avec cette saisie : pas d’heure de retour à prévoir.");
   });
 });
