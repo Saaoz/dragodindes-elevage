@@ -65,9 +65,9 @@ La carte n'affiche pas `aRemplir.message` (recalculé chaque seconde sur l'état
 `VueEnclos.conseil`, calculé **à l'heure de retour** (stable) : « À ton retour : mets N points … ». À
 l'heure de retour, la jauge est supposée remplacée : on part des sérénités estimées à cet instant
 et d'une jauge vide. Si la jauge contient plus de points que nécessaire, la carte ajoute « reviens avant
-HH:MM pour changer de jauge ». Retour dépassé (#31) : pas de conseil de remplissage, seulement la
-consigne de ressaisie. Sans heure de retour (jauge vide à la saisie), « pas besoin de revenir » reste
-possible.
+HH:MM pour changer de jauge ». Retour dépassé : conseil calculé sur l'état **estimé maintenant**
+(« Maintenant : … », #64), puis la consigne de ressaisie (#31). Sans heure de retour (jauge vide à la
+saisie), « pas besoin de revenir » reste possible.
 
 #### Au bord de la zone, la jauge pousse encore (#45)
 
@@ -85,7 +85,30 @@ l'événement (points consommés depuis la saisie) :
 | Éviter ±5 000, monture à ±5 000, jauge encore active | « Passe sur la jauge Sérénité − et mets N points au total : c'est le maximum avant qu'une monture atteigne −5 000. » (même règle que `serenityPlan` sans objectif, pour la jauge opposée) |
 | Montures aux deux bornes (±5 000) | séparer |
 | Montures stables (aucune jauge, ou jauge vide à ce moment) | calcul « jauge vide » d'avant (#33) : « objectif déjà atteint » n'est possible que là |
-| Retour dépassé (#31) | inchangé : consigne de ressaisie |
+| Retour dépassé (#31, #64) | même règle sur l'état estimé maintenant (« Maintenant : passe sur la jauge … »), puis consigne de ressaisie |
+
+#### En retard, ou état saisi déjà au bord (#64)
+
+Le cas courant : le joueur arrive en retard, ses montures sont déjà à ±5 000 (ou hors de la zone) et la jauge
+pousse encore.
+
+- **Retour dépassé** : sous « Retour dépassé depuis … », la carte affiche le conseil de `remplissageAuRetour`
+  calculé sur `plan.etat` (état estimé maintenant), préfixé « Maintenant : », puis `CONSEIL_RETARD`.
+- **État saisi déjà au bord** (`VueEnclos.aFaireMaintenant`) : l'événement de retour (sortie de zone ou ±5 000)
+  tombe moins de `SEUIL_A_FAIRE_MAINTENANT_S` = **60 s** après la saisie, ou une monture est déjà hors de la zone
+  du côté où la jauge la pousse (ex. +3 000 en Sérénité + pour « Rester en Maturité » : la sortie, antérieure à la
+  saisie, est datée de la saisie). Ce n'est pas un retard : `retardS` reste null, la carte titre « À faire
+  maintenant », dit au présent ce que fait la jauge (« La jauge Sérénité + pousse la monture 1 à +5 000 »), donne
+  le conseil de jauge opposée puis `CONSEIL_MAINTENANT` (« Ensuite, clique « Je quitte l'enclos » … »). Une minute :
+  le temps de lire les valeurs en jeu et de les taper, et aucun rappel n'a de sens à moins d'une minute (la plus
+  petite marge non nulle est de 5 min). Une jauge presque vide (`jaugeVide` dans la minute) n'est pas concernée :
+  elle ne fait de tort à aucune monture. Effets : urgent (rouge, #57), en tête du tri, titre d'onglet « À faire · … »,
+  pas de rappel, annonce « … enregistré : à faire maintenant. Passe sur la jauge … » (#56).
+- **Aperçu dans le formulaire** (`apercuSaisie`) : « Avec cette saisie : reviens avant HH:MM » (ou « à faire
+  maintenant », ou « pas d'heure de retour ») + le conseil, calculés comme la carte à partir du brouillon
+  (`enclosDeBrouillon` puis `vueEnclos`, objectif du brouillon). Mis à jour à chaque frappe ; brouillon incomplet ou
+  illisible : texte neutre, sans erreur. Le lecteur d'écran lit une copie `aria-live="polite"` mise à jour après
+  1,2 s sans frappe, et pas à l'ouverture (le focus annonce déjà le premier champ).
 
 À vérifier en jeu : peut-on **changer de jauge** alors que l'autre contient encore du carburant, et
 que devient ce carburant ? La carte ne promet rien de plus que « passe sur la jauge … ».

@@ -39,13 +39,18 @@ export function EnclosPanel() {
     [enclos, maintenant],
   );
 
-  /* Titre de l'onglet = compte à rebours du prochain événement. */
+  /* Titre de l'onglet = compte à rebours du prochain événement ; « À faire » si l'état saisi était déjà au bord (#64). */
   const prochain = vues[0]?.retour ?? null;
   useEffect(() => {
     if (!pret) return;
-    document.title = prochain
-      ? `${prochain.quandMs <= maintenant ? "En retard" : formatCompteARebours((prochain.quandMs - maintenant) / 1000)} · ${enclos[vues[0].index].nom || `Enclos ${vues[0].index + 1}`} · ${TITRE}`
-      : TITRE;
+    const etiquette = !prochain
+      ? ""
+      : vues[0].aFaireMaintenant
+        ? "À faire"
+        : prochain.quandMs <= maintenant
+          ? "En retard"
+          : formatCompteARebours((prochain.quandMs - maintenant) / 1000);
+    document.title = prochain ? `${etiquette} · ${enclos[vues[0].index].nom || `Enclos ${vues[0].index + 1}`} · ${TITRE}` : TITRE;
   }, [pret, prochain, maintenant, enclos, vues]);
   useEffect(() => () => void (document.title = "Élevage de dragodindes"), []);
 

@@ -66,10 +66,16 @@ function EnclosASurveiller() {
                   <div className="min-w-0 flex-1">
                     <p className="truncate text-sm font-medium">{nom}</p>
                     <p className={cn("font-bold tabular-nums", rang === 0 ? "text-xl" : "text-base")}>
-                      {v.retardS !== null ? "Retour dépassé" : `Reviens avant ${formatHeure(v.retour!.quandMs, maintenant)}`}
+                      {v.aFaireMaintenant
+                        ? "À faire maintenant"
+                        : v.retardS !== null
+                          ? "Retour dépassé"
+                          : `Reviens avant ${formatHeure(v.retour!.quandMs, maintenant)}`}
                     </p>
                     <p className={cn("text-xs", urgent ? "font-medium text-destructive" : "text-muted-foreground")}>
-                      {`${v.retardS !== null ? `depuis ${formatDuree(v.retardS)}` : `dans ${formatDuree(reste)}`} · ${raison}`}
+                      {v.aFaireMaintenant
+                        ? `${raison.charAt(0).toUpperCase()}${raison.slice(1)}`
+                        : `${v.retardS !== null ? `depuis ${formatDuree(v.retardS)}` : `dans ${formatDuree(reste)}`} · ${raison}`}
                     </p>
                   </div>
                   {v.alerte && (

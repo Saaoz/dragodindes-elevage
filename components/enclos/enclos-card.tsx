@@ -10,6 +10,7 @@ import { IconeJauge } from "@/components/enclos/icone-jauge";
 import {
   brouillonDe,
   alerteSurRetour,
+  CONSEIL_MAINTENANT,
   CONSEIL_RETARD,
   estUrgent,
   formatDuree,
@@ -53,8 +54,8 @@ export type Permission = NotificationPermission | "indisponible";
 const enMinuscule = (t: string) => t.charAt(0).toLowerCase() + t.slice(1);
 
 function evenementAgenda(enclos: Enclos, vue: VueEnclos, maintenantMs: number, margeMin: number): EvenementAgenda | null {
-  /* heure de retour passée : aucun rappel ni agenda dans le passé (#31) */
-  if (!vue.retour || vue.retardS !== null) return null;
+  /* heure de retour passée, ou à faire maintenant : aucun rappel ni agenda dans le passé (#31, #64) */
+  if (!vue.retour || vue.retardS !== null || vue.aFaireMaintenant) return null;
   const nom = enclos.nom || `Enclos ${vue.index + 1}`;
   const avant = formatHeure(vue.retour.quandMs, maintenantMs);
   const lignes = [`Reviens à « ${nom} » avant ${avant}.`];
@@ -141,6 +142,7 @@ export function EnclosCard({
   const { retour, alerte, plan } = vue;
   const reste = retour ? (retour.quandMs - maintenantMs) / 1000 : null;
   const depasse = vue.retardS !== null;
+  const maintenant = vue.aFaireMaintenant;
   const raison = raisonRetour(vue, maintenantMs) ?? "";
   const jaugeVidee = vue.jaugeVideMs !== null && vue.jaugeVideMs <= maintenantMs;
   /* rouge seulement si l'urgence est réelle (SEUIL_URGENCE_S, #57) ; sinon neutre ou avertissement */
@@ -277,6 +279,7 @@ export function EnclosCard({
       {edition ? (
         <EnclosForm
           initial={brouillonDe(enclos, saisi ? plan.etat : undefined)}
+          maintenantMs={maintenantMs}
           onSave={(e) => {
             setFait(null);
             setAnnonce("");
@@ -307,16 +310,24 @@ export function EnclosCard({
               <Clock className={cn("mt-1 size-5 shrink-0", urgent ? "text-destructive" : "text-primary")} aria-hidden />
               <div>
                 <p className="text-2xl leading-tight font-bold">
-                  {depasse
-                    ? `Retour dépassé depuis ${formatDuree(vue.retardS ?? 0)}`
-                    : `Reviens avant ${formatHeure(retour.quandMs, maintenantMs)}`}
+                  {maintenant
+                    ? "À faire maintenant"
+                    : depasse
+                      ? `Retour dépassé depuis ${formatDuree(vue.retardS ?? 0)}`
+                      : `Reviens avant ${formatHeure(retour.quandMs, maintenantMs)}`}
                 </p>
                 <p className={cn("text-sm", urgent ? "font-medium text-destructive" : "text-muted-foreground")}>
-                  {depasse
+                  {depasse || maintenant
                     ? `${raison.charAt(0).toUpperCase()}${raison.slice(1)}.`
                     : `dans ${formatDuree(reste ?? 0)} · ${raison}`}
                 </p>
-                {depasse && <p className="mt-1 text-sm">{CONSEIL_RETARD}</p>}
+                {/* sur place ou en retard : le conseil chiffré (état estimé maintenant) vient juste sous le titre (#64) */}
+                {(depasse || maintenant) && vue.conseil && (
+                  <p className="mt-1 text-sm font-medium" data-testid="conseil-maintenant">
+                    {vue.conseil}
+                  </p>
+                )}
+                {(depasse || maintenant) && <p className="mt-1 text-sm">{maintenant ? CONSEIL_MAINTENANT : CONSEIL_RETARD}</p>}
               </div>
             </div>
           ) : (
@@ -337,7 +348,7 @@ export function EnclosCard({
             >
               <TriangleAlert className="mt-0.5 size-4 shrink-0" aria-hidden />
               <span>
-                <strong>Alerte</strong> : {texteAlerte(alerte, maintenantMs, alerteSurRetour(vue))}
+                <strong>Alerte</strong> : {texteAlerte(alerte, maintenantMs, alerteSurRetour(vue), maintenant)}
               </span>
             </p>
           )}
@@ -398,7 +409,7 @@ export function EnclosCard({
                 options={OPTIONS_OBJECTIF}
               />
             </div>
-            {vue.conseil && <p>{vue.conseil}</p>}
+            {vue.conseil && !depasse && !maintenant && <p>{vue.conseil}</p>}
             {plan.aRemplir.statut === "tropEcartees" && plan.aRemplir.groupes && (
               <p className="text-warning">
                 Regroupement conseillé :{" "}
