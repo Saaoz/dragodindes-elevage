@@ -9,9 +9,23 @@ import { cn } from "@/lib/utils";
 
 const geist = Geist({subsets:['latin'],variable:'--font-sans'});
 
+const DESCRIPTION = `Outil de fan non officiel pour l'élevage de dragodindes (DOFUS ${VERSION_JEU}) : heure de retour à l'enclos, rentabilité d'un couple, guide.`;
+
 export const metadata: Metadata = {
+  /* adresse publique : les liens de la miniature de partage (og:image) sont absolus */
+  metadataBase: new URL("https://elevage-dofus.saaoz.fr"),
   title: { default: "Élevage de dragodindes", template: "%s · Élevage de dragodindes" },
-  description: `Outil de fan non officiel pour l'élevage de dragodindes (DOFUS ${VERSION_JEU}) : heure de retour à l'enclos, rentabilité d'un couple, guide.`,
+  description: DESCRIPTION,
+  /* aperçu des liens partagés (Discord, réseaux) : l'image vient de app/opengraph-image.tsx */
+  openGraph: {
+    type: "website",
+    locale: "fr_FR",
+    siteName: "Élevage de dragodindes",
+    title: "Élevage de dragodindes",
+    description: DESCRIPTION,
+    url: "/",
+  },
+  twitter: { card: "summary_large_image", title: "Élevage de dragodindes", description: DESCRIPTION },
   icons: { apple: "/icons/apple-touch-icon.png" },
   appleWebApp: { capable: true, title: "Dragodindes", statusBarStyle: "default" },
 };

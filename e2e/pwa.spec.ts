@@ -105,3 +105,14 @@ test("une nouvelle version du service worker remplace l'ancienne : un seul cache
     proxy.close();
   }
 });
+/* Aperçu des liens partagés (Discord, réseaux) : balises Open Graph et image 1200 × 630. */
+test("aperçu de partage : og:image et image PNG servie", async ({ page, request }) => {
+  await page.goto("/enclos");
+  const og = await page.locator('meta[property="og:image"]').getAttribute("content");
+  expect(og).toMatch(/^https:\/\/elevage-dofus\.saaoz\.fr\/opengraph-image/);
+  await expect(page.locator('meta[property="og:title"]')).toHaveAttribute("content", "Élevage de dragodindes");
+  await expect(page.locator('meta[name="twitter:card"]')).toHaveAttribute("content", "summary_large_image");
+  const img = await request.get("/opengraph-image");
+  expect(img.status()).toBe(200);
+  expect(img.headers()["content-type"]).toContain("image/png");
+});
