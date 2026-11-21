@@ -1,6 +1,7 @@
 /* Logique pure du panneau « Mes enclos » (#2) : visages, saisie, formats, urgence.
    Le calcul de sérénité lui-même reste dans lib/serenity.ts. */
 import { CAPACITE_JAUGE } from "@/lib/data";
+import type { EvenementAgenda } from "@/lib/ics";
 import {
   AUTRES_JAUGES,
   enclosSchema,
@@ -627,6 +628,68 @@ export function trierParUrgence<T extends { index: number; retour: RetourEnclos 
 /** Heure du rappel (agenda, notification) : `marge` minutes avant le retour, jamais dans le passé. */
 export function heureRappel(retourMs: number, margeMin: number, maintenantMs: number): number {
   return Math.max(retourMs - Math.max(0, margeMin) * 60_000, maintenantMs);
+}
+
+/* ---------- tournée (#65) ---------- */
+/** Fenêtre d'une tournée : les enclos dont le retour tombe dans les 15 min qui suivent le plus urgent se font
+    « dans la foulée » du premier, un seul passage suffit. Fixe (ni réglage, ni donnée persistée). */
+export const FENETRE_TOURNEE_MIN = 15;
+
+type VueTournee = Pick<VueEnclos, "index" | "retour" | "retardS" | "aFaireMaintenant">;
+
+export interface Tournee<T extends VueTournee = VueEnclos> {
+  /** Heure du passage : le retour du plus urgent ; « maintenant » s'il est à faire tout de suite ou en retard. */
+  debutMs: number;
+  /** Vrai si le plus urgent est à faire maintenant ou en retard : rien à programmer, il faut y aller. */
+  immediat: boolean;
+  /** Le plus urgent d'abord. */
+  membres: T[];
+}
+
+/** Heure à laquelle un enclos est à revoir pour la tournée (maintenant s'il est à faire tout de suite ou en retard). */
+const heureTournee = (v: VueTournee, maintenantMs: number): number =>
+  v.aFaireMaintenant || v.retardS !== null ? maintenantMs : Math.max(v.retour!.quandMs, maintenantMs);
+
+/** Regroupe les enclos qui ont une heure de retour en tournées : le plus urgent ouvre une tournée avec tous ceux
+    dont le retour tombe au plus `fenetreMin` minutes après lui ; le suivant, resté à part, ouvre la tournée d'après.
+    Fonction pure : l'heure « maintenant » est un paramètre. */
+export function grouperTournees<T extends VueTournee>(vues: readonly T[], maintenantMs: number, fenetreMin = FENETRE_TOURNEE_MIN): Tournee<T>[] {
+  const triees = trierParUrgence(vues.filter((v) => v.retour !== null));
+  const tournees: Tournee<T>[] = [];
+  for (const v of triees) {
+    const h = heureTournee(v, maintenantMs);
+    const derniere = tournees[tournees.length - 1];
+    if (derniere && h - derniere.debutMs <= Math.max(0, fenetreMin) * 60_000) derniere.membres.push(v);
+    else tournees.push({ debutMs: h, immediat: v.aFaireMaintenant || v.retardS !== null, membres: [v] });
+  }
+  return tournees;
+}
+
+/** Empreinte de la tournée et de la marge de rappel : si elle change (enclos ressaisi, autre composition, autre
+    marge), le rappel programmé ne vaut plus. Sans l'heure « maintenant » : stable tant que rien n'est saisi. */
+export function cleTournee(t: Tournee<VueTournee>, margeMin: number): string {
+  return `${margeMin}|${t.membres.map((v) => `${v.index}@${v.retour!.quandMs}`).join(",")}`;
+}
+
+/** Événement d'agenda unique de la tournée : `margeMin` avant le premier retour, description = un enclos par ligne.
+    null si la tournée est à faire tout de suite (aucun rappel dans le passé). */
+export function evenementTournee(t: Tournee, nom: (v: VueEnclos) => string, margeMin: number, maintenantMs: number): EvenementAgenda | null {
+  if (t.immediat) return null;
+  const avant = formatHeure(t.debutMs, maintenantMs);
+  const dernierMs = Math.max(...t.membres.map((v) => v.retour!.quandMs));
+  const lignes = t.membres.map((v) => {
+    const l = `${nom(v)} : avant ${formatHeure(v.retour!.quandMs, maintenantMs)}.`;
+    return v.conseil ? `${l} ${v.conseil}` : l;
+  });
+  return {
+    uid: "tournee@dragodindes-elevage",
+    titre: `Tournée des enclos : passe avant ${avant}`,
+    description: [`${t.membres.length} enclos à revoir dans la foulée :`, ...lignes].join("\n"),
+    debutMs: heureRappel(t.debutMs, margeMin, maintenantMs),
+    dureeMin: Math.max(10, Math.ceil((dernierMs - t.debutMs) / 60_000) + 5),
+    alarmeMin: 0,
+    maintenantMs,
+  };
 }
 
 /** « 5 min avant », « à l'heure exacte ». */

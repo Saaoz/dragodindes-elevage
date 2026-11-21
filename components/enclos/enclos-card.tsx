@@ -74,7 +74,7 @@ function evenementAgenda(enclos: Enclos, vue: VueEnclos, maintenantMs: number, m
   };
 }
 
-function telecharger(nomFichier: string, contenu: string) {
+export function telecharger(nomFichier: string, contenu: string) {
   const url = URL.createObjectURL(new Blob([contenu], { type: "text/calendar;charset=utf-8" }));
   const a = document.createElement("a");
   a.href = url;

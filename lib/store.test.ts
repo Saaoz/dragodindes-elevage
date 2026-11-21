@@ -4,7 +4,7 @@ import fixture from "./__fixtures__/export-v2.json";
 import { PRICE_KEYS, SERVER_IDS, defaultAppData, type PriceKey, type ServerId } from "./schema";
 import { matrice } from "./rentabilite";
 import {
-  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateMethodeRappel, migrateOptimakina, migrateRappels, migrateRappelsAgenda, migrateV1, parseExport, priceCount, syncOnglets,
+  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateMethodeRappel, migrateRappelTournee, migrateOptimakina, migrateRappels, migrateRappelsAgenda, migrateV1, parseExport, priceCount, syncOnglets,
   parsePaste, priceValues, resetDemo, useDemoStore, useStore,
 } from "./store";
 
@@ -727,7 +727,7 @@ describe("version 7 (#51) : méthode de rappel mémorisée", () => {
     mem.setItem(STORAGE_KEY, JSON.stringify({ version: 6, state: { ...fixture.data, enclos, reglages: { margeRappelMin: 15 } } }));
     await useStore.persist.rehydrate();
     expect(st().futureVersion).toBe(false);
-    expect(st().reglages).toEqual({ margeRappelMin: 15, methodeRappel: null });
+    expect(st().reglages).toEqual({ margeRappelMin: 15, methodeRappel: null, rappelTournee: null });
     expect(st().enclos[2].nom).toBe("Trois");
     expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(STORAGE_VERSION);
   });
@@ -757,7 +757,7 @@ describe("version 7 (#51) : méthode de rappel mémorisée", () => {
   it("une méthode illisible sur le disque retombe sur null sans perdre le reste", async () => {
     mem.setItem(STORAGE_KEY, JSON.stringify({ version: 7, state: { ...fixture.data, reglages: { margeRappelMin: 30, methodeRappel: "x" } } }));
     await useStore.persist.rehydrate();
-    expect(st().reglages).toEqual({ margeRappelMin: 30, methodeRappel: null });
+    expect(st().reglages).toEqual({ margeRappelMin: 30, methodeRappel: null, rappelTournee: null });
   });
 
   it("version plus récente : la méthode ne s'écrit pas (lecture seule)", async () => {
@@ -792,7 +792,7 @@ describe("version 9 : notifications push retirées", () => {
     expect(st().enclos.map((e) => e.saisieLe)).toEqual([60, 61, 62, 63, 64, 65]);
     expect(st().enclos[0].rappel).toBeNull();
     expect(st().enclos[1].rappel).toEqual({ methode: "google", at: 555 });
-    expect(st().reglages).toEqual({ margeRappelMin: 15, methodeRappel: null });
+    expect(st().reglages).toEqual({ margeRappelMin: 15, methodeRappel: null, rappelTournee: null });
   });
 
   it("un export contenant un ancien rappel push s'importe (rappel ignoré)", () => {
@@ -805,7 +805,7 @@ describe("version 9 : notifications push retirées", () => {
 
 describe("version 10 (#63) : objectifs Endurance et Amour", () => {
   it("la version de stockage est 10", () => {
-    expect(STORAGE_VERSION).toBe(10);
+    expect(STORAGE_VERSION).toBeGreaterThanOrEqual(10);
   });
 
   it("migration v9 → v10 : enclos et objectifs gardés tels quels (l'objectif n'est pas déduit de l'autre jauge)", async () => {
@@ -821,14 +821,14 @@ describe("version 10 (#63) : objectifs Endurance et Amour", () => {
     expect(st().enclos.map((e) => e.objectif)).toEqual(["aucun", "maturite", "aucun", "aucun", "aucun", "aucun"]);
     expect(st().enclos.map((e) => e.saisieLe)).toEqual([70, 71, 72, 73, 74, 75]);
     expect(st().enclos[2].rappel).toEqual({ methode: "agenda", at: 777 });
-    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(10);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(STORAGE_VERSION);
   });
 
   it("« endurance » et « amour » s'enregistrent, se persistent et se relisent", async () => {
     expect(st().setObjectif(0, "endurance")).toBe(true);
     expect(st().setObjectif(1, "amour")).toBe(true);
     const disque = JSON.parse(mem.getItem(STORAGE_KEY)!);
-    expect(disque.version).toBe(10);
+    expect(disque.version).toBe(STORAGE_VERSION);
     expect(disque.state.enclos.slice(0, 2).map((e: any) => e.objectif)).toEqual(["endurance", "amour"]);
     await useStore.persist.rehydrate();
     expect(st().enclos.slice(0, 2).map((e) => e.objectif)).toEqual(["endurance", "amour"]);
@@ -963,5 +963,65 @@ describe("version 8 (#53) : rappel agenda / Google mémorisé par enclos", () =>
     cible.dispatchEvent(Object.assign(new Event("storage"), { key: STORAGE_KEY, storageArea: mem }));
     await vi.waitFor(() => expect(st().enclos[0].rappel).toEqual({ methode: "google", at: 66 }));
     stop();
+  });
+});
+
+describe("version 11 (#65) : rappel de la tournée", () => {
+  const rt = { methode: "agenda" as const, at: 1234, cle: "5|0@100,1@200" };
+
+  it("la version de stockage est au moins 11", () => {
+    expect(STORAGE_VERSION).toBeGreaterThanOrEqual(11);
+  });
+
+  it("migration v10 → v11 : données gardées, rappelTournee null, réécrit en v11", async () => {
+    const enclos = defaultAppData().enclos;
+    enclos[1] = { ...enclos[1], nom: "Deux", saisieLe: 9 };
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 10, state: { ...fixture.data, enclos, reglages: { margeRappelMin: 15, methodeRappel: "agenda" } } }));
+    await useStore.persist.rehydrate();
+    expect(st().futureVersion).toBe(false);
+    expect(st().reglages).toEqual({ margeRappelMin: 15, methodeRappel: "agenda", rappelTournee: null });
+    expect(st().enclos[1].nom).toBe("Deux");
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).version).toBe(STORAGE_VERSION);
+  });
+
+  it("migrateRappelTournee : absent ou illisible vaut null, valide gardé, idempotent, argument intact", () => {
+    const sans = { reglages: { margeRappelMin: 5 } };
+    expect(migrateRappelTournee(sans).reglages).toEqual({ margeRappelMin: 5, rappelTournee: null });
+    expect(sans.reglages).toEqual({ margeRappelMin: 5 });
+    expect(migrateRappelTournee({ reglages: { rappelTournee: { methode: "push", at: 1, cle: "x" } } }).reglages.rappelTournee).toBeNull();
+    const bon = { reglages: { margeRappelMin: 5, rappelTournee: rt } };
+    expect(migrateRappelTournee(migrateRappelTournee(bon))).toEqual(bon);
+  });
+
+  it("setRappelTournee : enregistré, persisté, rechargé, effacé ; valeur invalide ou « page » refusée", async () => {
+    expect(st().reglages.rappelTournee).toBeNull();
+    expect(st().setRappelTournee(rt)).toBe(true);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).state.reglages.rappelTournee).toEqual(rt);
+    expect(st().setRappelTournee({ ...rt, methode: "page" } as never)).toBe(false);
+    expect(st().setRappelTournee({ methode: "agenda", at: -1, cle: "" })).toBe(false);
+    await useStore.persist.rehydrate();
+    expect(st().reglages.rappelTournee).toEqual(rt);
+    expect(st().setRappelTournee(null)).toBe(true);
+    expect(st().reglages.rappelTournee).toBeNull();
+  });
+
+  it("propre à l'appareil : jamais exporté, jamais importé ; un import garde celui de l'appareil", () => {
+    st().setRappelTournee(rt);
+    st().setMargeRappel(15);
+    const json = st().exportJSON();
+    expect(JSON.parse(json).data.reglages).toEqual({ margeRappelMin: 15, methodeRappel: null });
+    const avecRappel = JSON.parse(json);
+    avecRappel.data.reglages.rappelTournee = { methode: "google", at: 9, cle: "autre" };
+    const p = parseExport(JSON.stringify(avecRappel));
+    expect(p.ok && p.data.reglages.rappelTournee).toBeNull();
+    expect(st().importJSON(JSON.stringify(avecRappel)).ok).toBe(true);
+    expect(st().reglages.rappelTournee).toEqual(rt);
+  });
+
+  it("en démo : le rappel de la tournée reste en mémoire, rien n'est écrit sur le disque", () => {
+    const avant = mem.getItem(STORAGE_KEY);
+    useDemoStore.getState().setRappelTournee(rt);
+    expect(mem.getItem(STORAGE_KEY)).toBe(avant);
+    resetDemo();
   });
 });

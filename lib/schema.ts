@@ -138,6 +138,15 @@ export const defaultEnclos = (): Enclos[] =>
 export const METHODES_RAPPEL = ["agenda", "google", "page"] as const;
 export type MethodeRappel = (typeof METHODES_RAPPEL)[number];
 
+/* Rappel unique de la tournée (#65), propre à l'appareil : agenda / Google seulement. `cle` = empreinte de la tournée
+   et de la marge au moment de la programmation (voir `cleTournee`) ; si elle ne correspond plus, le rappel est obsolète. */
+export const rappelTourneeSchema = z.object({
+  methode: z.enum(METHODES_PERSISTEES),
+  at: z.number().finite().nonnegative(),
+  cle: z.string().max(300),
+});
+export type RappelTournee = z.infer<typeof rappelTourneeSchema>;
+
 export const reglagesSchema = z.object({
   /* minutes de marge des rappels ; une valeur hors liste (ancienne / corrompue) retombe sur 5 */
   margeRappelMin: z
@@ -147,6 +156,8 @@ export const reglagesSchema = z.object({
     .catch(MARGE_RAPPEL_DEFAUT_MIN),
   /* méthode de rappel mémorisée ; absente ou illisible : null (le choix est reproposé) */
   methodeRappel: z.enum(METHODES_RAPPEL).nullable().catch(null),
+  /* rappel de la tournée programmé sur cet appareil ; absent ou illisible : null. Jamais exporté ni importé. */
+  rappelTournee: rappelTourneeSchema.nullable().catch(null),
 });
 export type Reglages = z.infer<typeof reglagesSchema>;
 
@@ -158,7 +169,7 @@ export const appDataSchema = z.object({
   calc: calcSchema.prefault({}),
   prices: pricesSchema.prefault({}),
   enclos: z.array(enclosSchema).length(NB_ENCLOS).prefault(defaultEnclos()),
-  reglages: reglagesSchema.prefault({ margeRappelMin: MARGE_RAPPEL_DEFAUT_MIN, methodeRappel: null }),
+  reglages: reglagesSchema.prefault({ margeRappelMin: MARGE_RAPPEL_DEFAUT_MIN, methodeRappel: null, rappelTournee: null }),
 });
 export type AppData = z.infer<typeof appDataSchema>;
 export const defaultAppData = (): AppData => appDataSchema.parse({});
