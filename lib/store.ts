@@ -612,10 +612,46 @@ function demoEnclos(now: number): Enclos[] {
   return d;
 }
 
+/* Prix fictifs de la démo, différents par serveur (#67 : sinon le comparatif affiche 7 lignes identiques).
+   Coefficients fixes (pas d'aléatoire) : Imagiro reste à ×1 (il sert de référence aux tests), les autres s'en écartent
+   pour les montures (et la ressource neurone / genetons) et pour les Optimakina. Ce sont des chiffres inventés. */
+const COEF_MONTURE: Record<ServerId, number> = {
+  Draconiros: 1.3, "Tal Kasha": 0.8, Orukam: 1.1, Tylezia: 0.7, "Hell Mina": 1.2, Imagiro: 1, Ombre: 0.9,
+};
+const COEF_OPTI: Record<ServerId, number> = {
+  Draconiros: 0.75, "Tal Kasha": 1.25, Orukam: 0.85, Tylezia: 1.15, "Hell Mina": 1.1, Imagiro: 1, Ombre: 1.1,
+};
+/* Particularités par génération : un prix de monture plus haut ou plus bas que la moyenne du serveur, pour que la
+   génération cible la plus rentable ne soit pas la même partout. */
+const PARTICULARITES: Partial<Record<ServerId, Partial<Record<PriceKey, number>>>> = {
+  Draconiros: { g5: 1.35 },
+  "Tal Kasha": { g6: 0.7 },
+  "Hell Mina": { g5: 1.3 },
+  Orukam: { g6: 0.7 },
+  Tylezia: { g6: 0.75 },
+  Ombre: { g7: 0.6 },
+};
+
+/* Prix volontairement absents sur un serveur : les cases concernées s'affichent hachurées (« prix manquants »). */
+const PRIX_MANQUANTS: Partial<Record<ServerId, PriceKey[]>> = { Ombre: ["g3", "opti6"] };
+
+/* Arrondi au millier (minimum 1 000) pour des prix plausibles. */
+const arrondi = (v: number): number => Math.max(1000, Math.round(v / 1000) * 1000);
+
+function demoServeur(id: ServerId, now: number): ServerPrices {
+  const sp = Object.fromEntries(
+    PRICE_KEYS.map((k) => {
+      const coef = k.startsWith("opti") ? COEF_OPTI[id] : COEF_MONTURE[id] * (PARTICULARITES[id]?.[k] ?? 1);
+      return [k, { v: arrondi(DEMO_VALUES[k] * coef), t: now }];
+    }),
+  ) as ServerPrices;
+  for (const k of PRIX_MANQUANTS[id] ?? []) delete sp[k];
+  return sp;
+}
+
 export function demoData(now = Date.now()): AppData {
   const d = defaultAppData();
-  const sp = Object.fromEntries(PRICE_KEYS.map((k) => [k, { v: DEMO_VALUES[k], t: now }])) as ServerPrices;
-  d.prices = Object.fromEntries(SERVER_IDS.map((id) => [id, structuredClone(sp)])) as PricesState;
+  d.prices = Object.fromEntries(SERVER_IDS.map((id) => [id, demoServeur(id, now)])) as PricesState;
   d.enclos = demoEnclos(now);
   return d;
 }
