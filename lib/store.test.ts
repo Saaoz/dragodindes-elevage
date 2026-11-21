@@ -1042,7 +1042,8 @@ describe("version 12 (#66) : lieu de vente (taxe HDV)", () => {
   });
 
   it("un état v11 sans lieuVente se recharge avec le défaut, sans rien perdre", async () => {
-    const { lieuVente: _l, ...calcSans } = { ...st().calc } as Record<string, unknown>;
+    const calcSans: Record<string, unknown> = { ...st().calc };
+    delete calcSans.lieuVente;
     mem.setItem(STORAGE_KEY, JSON.stringify({ version: 11, state: { ...fixture.data, calc: { ...calcSans, target: 7 } } }));
     await useStore.persist.rehydrate();
     expect(st().calc.lieuVente).toBe("bonta-brakmar-autre");
