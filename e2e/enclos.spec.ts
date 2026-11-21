@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 async function saisir(page: Page) {
@@ -840,4 +841,88 @@ test("objectifs Endurance / Amour (#63) : proposé selon l'autre jauge, conseil 
     /l’Amour ne monte pour aucune de tes montures en ce moment\s*: leur sérénité est négative/,
   );
   await expect(carte.getByTestId("alerte-jauge")).not.toContainText(/carburant|gaspill/);
+});
+
+/* #65 : tournée = le plus urgent + les enclos dont le retour tombe dans les 15 min qui suivent */
+async function saisirTournee(page: Page, nom: string, serenite: string, niveau = "200000") {
+  await page.getByRole("region", { name: nom }).getByRole("button", { name: "Saisir cet enclos" }).click();
+  await page.getByLabel("Sérénité exacte de la monture 1").fill(serenite);
+  await page.getByRole("button", { name: "Sérénité +" }).click();
+  await page.getByPlaceholder("ex. 200000 ou 85k").fill(niveau);
+  await page.getByRole("button", { name: /Enregistrer/ }).click();
+}
+
+test("tournée (#65) : 21 h 25 / 21 h 33 / 21 h 33 / 21 h 41 → « 3 enclos », le 4e à part ; un clic, un seul .ics, état gardé au rechargement", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisirTournee(page, "Enclos 1", "-3000");
+  await saisirTournee(page, "Enclos 2", "-3000");
+  /* deux enclos seulement à 21 h 33 : déjà une tournée de 2 */
+  await expect(page.getByTestId("tournee-resume")).toContainText(/Passe à 21\sh\s33\s: 2\senclos/);
+  await saisirTournee(page, "Enclos 3", "-1000");
+  await saisirTournee(page, "Enclos 4", "-5000");
+  const tournee = page.getByTestId("tournee");
+  await expect(page.getByTestId("tournee-resume")).toContainText(/Passe à 21\sh\s25\s: 3\senclos/);
+  const liste = tournee.getByRole("list", { name: "Enclos de la tournée" });
+  await expect(liste.getByRole("listitem")).toHaveText([/Enclos 3\s21\sh\s25/, /Enclos 1\s21\sh\s33/, /Enclos 2\s21\sh\s33/]);
+  await expect(liste).not.toContainText("Enclos 4");
+
+  let telechargements = 0;
+  page.on("download", () => telechargements++);
+  const dl = page.waitForEvent("download");
+  await tournee.getByRole("button", { name: /^Me rappeler pour la tournée/ }).click();
+  await choix(page).getByRole("radio", { name: /Dans mon agenda/ }).check();
+  await choix(page).getByRole("button", { name: /^Me rappeler à/ }).click();
+  const ics = fs.readFileSync((await (await dl).path())!, "utf8");
+  expect(ics.match(/BEGIN:VEVENT/g)).toHaveLength(1);
+  expect(ics.replace(/\r\n /g, "")).toMatch(/Enclos 3 : avant 21.{1,3}h.{1,3}25.*Enclos 1.*Enclos 2/);
+  await expect(tournee.getByTestId("etat-rappel-tournee")).toContainText(/^✓ Rappel de la tournée programmé à 21\sh\s20\s\(dans ton agenda\)/);
+  await expect(tournee.getByTestId("annonce-rappel-tournee")).toContainText("Rappel de la tournée programmé à 21");
+  await expect(tournee.getByRole("button", { name: /^Me rappeler pour la tournée/ })).toHaveCount(0);
+  expect(telechargements).toBe(1);
+  /* les rappels par carte restent possibles */
+  await expect(boutonRappel(page.getByRole("region", { name: "Enclos 1" }))).toBeVisible();
+
+  /* rechargement : l'état survit, toujours un seul événement */
+  await page.reload();
+  await expect(page.getByTestId("etat-rappel-tournee")).toContainText(/Rappel de la tournée programmé à 21\sh\s20\s\(dans ton agenda\)/);
+  await expect(page.getByRole("button", { name: /^Me rappeler pour la tournée/ })).toHaveCount(0);
+  const stocke = await page.evaluate(() => JSON.parse(Object.entries(localStorage).find(([k]) => k.includes("dd"))![1]).state.reglages.rappelTournee);
+  expect(stocke).toMatchObject({ methode: "agenda" });
+  expect(telechargements).toBe(1);
+
+  /* un enclos ressaisi change la tournée : le rappel est obsolète, l'ancien événement est signalé */
+  await ressaisir(page, page.getByRole("region", { name: "Enclos 3" }), "-4000");
+  await expect(page.getByTestId("etat-rappel-tournee")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /^Me rappeler pour la tournée/ })).toBeVisible();
+  await expect(page.getByTestId("ancien-rappel-tournee")).toContainText(/^Pense à supprimer l.ancien rappel de la tournée de 21\sh\s20 dans ton agenda/);
+});
+
+test("tournée (#65) : pas d'encadré avec un seul enclos ; lien depuis l'accueil quand il y en a plusieurs", async ({ page }) => {
+  await page.clock.install({ time: new Date(2026, 10, 20, 21, 0, 0) });
+  await page.goto("/enclos");
+  await saisirTournee(page, "Enclos 1", "-3000");
+  await expect(page.getByTestId("tournee")).toHaveCount(0);
+  await page.goto("/");
+  await expect(page.getByTestId("lien-tournee")).toHaveCount(0);
+  await page.goto("/enclos");
+  await saisirTournee(page, "Enclos 2", "-3000");
+  await page.goto("/");
+  await page.getByTestId("lien-tournee").click();
+  await expect(page).toHaveURL(/\/enclos#titre-tournee/);
+  await expect(page.getByTestId("tournee")).toBeVisible();
+});
+
+test("tournée (#65) : en démo, aucun rappel réel, même message que les cartes", async ({ page }) => {
+  await page.goto("/enclos");
+  await expect(page.getByRole("region", { name: "Enclos 1" })).toBeVisible();
+  const avant = await etatLocal(page);
+  await page.getByRole("button", { name: "Voir une démo" }).click();
+  const tournee = page.getByTestId("tournee");
+  await expect(tournee).toBeVisible();
+  await tournee.getByRole("button", { name: /^Me rappeler pour la tournée/ }).click();
+  await expect(tournee.getByTestId("annonce-rappel-tournee")).toContainText("Mode démo : aucun rappel réel n’est programmé");
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(tournee.getByTestId("etat-rappel-tournee")).toHaveCount(0);
+  expect(await etatLocal(page)).toBe(avant);
 });

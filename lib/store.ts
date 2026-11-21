@@ -11,8 +11,8 @@ import { persist, type PersistStorage, type StorageValue } from "zustand/middlew
 import { parseKamas, type Prices } from "./calc";
 import {
   APP_ID, EXPORT_SCHEMA_VERSION, NB_ENCLOS, OBJECTIFS, PRICE_KEYS, SERVER_IDS, appDataSchema, calcSchema,
-  defaultAppData, enclosSchema, priceEntrySchema, rappelSchema, ancienRappelSchema, reglagesSchema, type AppData, type CalcState,
-  type Enclos, type MethodeRappel, type Objectif, type PriceKey, type PricesState, type Rappel, type AncienRappel, type ServerId, type ServerPrices,
+  defaultAppData, enclosSchema, priceEntrySchema, rappelSchema, ancienRappelSchema, reglagesSchema, rappelTourneeSchema, type AppData, type CalcState,
+  type Enclos, type MethodeRappel, type Objectif, type PriceKey, type PricesState, type Rappel, type RappelTournee, type AncienRappel, type ServerId, type ServerPrices,
 } from "./schema";
 
 /* ---------- clés localStorage et versions ----------
@@ -32,8 +32,9 @@ export const STORAGE_KEY = "dd-elevage-v3";
    mémorisée « push » aussi (le choix est reproposé) ;
    10 : objectifs « endurance » et « amour » (#63) — aucune donnée à transformer (les objectifs déjà
    enregistrés restent valides) ; la version empêche une appli v9, qui lirait « endurance » comme
-   illisible (« aucun »), de réécrire les données (elle passe en lecture seule, `futureVersion`). */
-export const STORAGE_VERSION = 10;
+   illisible (« aucun »), de réécrire les données (elle passe en lecture seule, `futureVersion`) ;
+   11 : `reglages.rappelTournee` (rappel unique de la tournée, #65), null par défaut. */
+export const STORAGE_VERSION = 11;
 export const LEGACY_V2_KEY = "dd-elevage-v2";
 export const LEGACY_V1_KEY = "dd-elevage-v1";
 
@@ -137,6 +138,15 @@ export function migrateMethodeRappel<T>(data: T): T {
   return { ...data, reglages: { ...reglages, methodeRappel: r.success ? r.data : null } } as T;
 }
 
+/* ---------- migration v10 → v11 : rappel de la tournée (#65) ----------
+   `reglages.rappelTournee` vaut null s'il est absent ou illisible. Idempotent ; ne modifie pas son argument. */
+export function migrateRappelTournee<T>(data: T): T {
+  if (!isObj(data)) return data;
+  const reglages = isObj(data.reglages) ? data.reglages : {};
+  const r = rappelTourneeSchema.nullable().safeParse(reglages.rappelTournee ?? null);
+  return { ...data, reglages: { ...reglages, rappelTournee: r.success ? r.data : null } } as T;
+}
+
 /* Le rappel est propre à l'appareil (agenda de cet appareil) : jamais exporté ni importé. */
 const sansRappels = (enclos: readonly Enclos[]): Enclos[] => enclos.map((e) => ({ ...e, rappel: null, ancienRappel: null }));
 
@@ -148,6 +158,13 @@ function ancienApres(avant: Enclos, apres: Rappel | null): AncienRappel | null {
     return { methode: r.methode, at: r.at };
   return avant.ancienRappel;
 }
+
+/* Le rappel de la tournée est propre à l'appareil : jamais exporté (la clé est omise). */
+const reglagesExportes = (r: AppData["reglages"]): Omit<AppData["reglages"], "rappelTournee"> => {
+  const { rappelTournee, ...reste } = r;
+  void rappelTournee;
+  return reste;
+};
 
 const enclosExporte = (e: Enclos): Omit<Enclos, "rappel" | "ancienRappel"> => {
   const { rappel, ancienRappel, ...reste } = e;
@@ -238,7 +255,7 @@ export function parseExport(text: string): ParsedImport {
   }
   return {
     ok: true,
-    data: { ...r.data, enclos: sansRappels(r.data.enclos) },
+    data: { ...r.data, enclos: sansRappels(r.data.enclos), reglages: { ...r.data.reglages, rappelTournee: null } },
     hasEnclos: isObj(data) && "enclos" in data,
     hasReglages: isObj(data) && "reglages" in data,
   };
@@ -333,6 +350,8 @@ export interface Actions {
   /* Marge des rappels en minutes (0, 5, 10, 15 ou 30). */
   setMargeRappel: (min: number) => boolean;
   setMethodeRappel: (m: MethodeRappel | null) => boolean;
+  /* Enregistre (ou efface avec null) le rappel unique de la tournée (#65) ; false si invalide ou en lecture seule. */
+  setRappelTournee: (r: RappelTournee | null) => boolean;
   oldestAge: (server: ServerId) => number | null;
 }
 export type AppStore = AppData & Actions;
@@ -417,7 +436,7 @@ function makeCreator(demo: boolean, initial: () => AppData): StateCreator<AppSto
           app: APP_ID,
           schemaVersion: EXPORT_SCHEMA_VERSION,
           exportedAt: new Date().toISOString(),
-          data: { ...pickData(get()), enclos: get().enclos.map(enclosExporte) },
+          data: { ...pickData(get()), enclos: get().enclos.map(enclosExporte), reglages: reglagesExportes(get().reglages) },
         },
         null,
         2,
@@ -430,7 +449,8 @@ function makeCreator(demo: boolean, initial: () => AppData): StateCreator<AppSto
       set({
         ...r.data,
         enclos: r.hasEnclos ? r.data.enclos : get().enclos,
-        reglages: r.hasReglages ? r.data.reglages : get().reglages,
+        /* le rappel de la tournée est celui de CET appareil : un import ne le touche pas */
+        reglages: r.hasReglages ? { ...r.data.reglages, rappelTournee: get().reglages.rappelTournee } : get().reglages,
       });
       return { ok: true, msg: "Import terminé." };
     },
@@ -467,6 +487,13 @@ function makeCreator(demo: boolean, initial: () => AppData): StateCreator<AppSto
       const r = reglagesSchema.shape.methodeRappel.safeParse(m);
       if (!r.success || r.data !== m) return false;
       set({ reglages: { ...get().reglages, methodeRappel: r.data } });
+      return true;
+    },
+    setRappelTournee: (rappel) => {
+      if (get().futureVersion) return false;
+      const r = rappelTourneeSchema.nullable().safeParse(rappel);
+      if (!r.success) return false;
+      set({ reglages: { ...get().reglages, rappelTournee: r.data } });
       return true;
     },
     oldestAge: (server) => oldestAge(get().prices, server),
@@ -554,7 +581,9 @@ export const useStore = create<AppStore>()(
       const v9 = version < 9 ? migrateMethodeRappel(migrateRappelsAgenda(v8)) : v8;
       /* v9 → v10 : rien à transformer. L'objectif n'est PAS déduit de l'autre jauge ici (ce serait changer l'heure de
          retour sans que le joueur le voie) : la saisie suivante le propose, visible et modifiable (#63). */
-      return v9 as AppStore;
+      /* v10 → v11 : rappel de la tournée à null s'il est absent ou illisible. */
+      const v11 = version < 11 ? migrateRappelTournee(v9) : v9;
+      return v11 as AppStore;
     },
     /* Toujours nettoyer ce qui vient du disque, même à version égale. */
     merge: (persisted, current) => ({ ...current, ...sanitize(persisted) }),

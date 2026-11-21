@@ -2,12 +2,13 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { BellRing } from "lucide-react";
+import { TourneeEncadre } from "@/components/enclos/tournee-encadre";
 import { EnclosCard, type Permission } from "@/components/enclos/enclos-card";
 import { magasinActif, useApp, useUi } from "@/components/app-state";
 import { BoutonDemo } from "@/components/commun/bouton-demo";
 import { Choix } from "@/components/commun/choix";
 import { EnTete, Page } from "@/components/commun/en-tete";
-import { annonceEnregistre, formatCompteARebours, trierParUrgence, vueEnclos, type Objectif } from "@/lib/enclos";
+import { annonceEnregistre, formatCompteARebours, grouperTournees, trierParUrgence, vueEnclos, type Objectif } from "@/lib/enclos";
 import { enclosSchema, MARGES_RAPPEL_MIN, type Enclos } from "@/lib/schema";
 import { methodesDisponibles } from "@/lib/rappel";
 
@@ -20,6 +21,7 @@ export function EnclosPanel() {
   const enclos = useApp((s) => s.enclos);
   const margeMin = useApp((s) => s.reglages.margeRappelMin);
   const methode = useApp((s) => s.reglages.methodeRappel);
+  const rappelTournee = useApp((s) => s.reglages.rappelTournee);
   const [permission, setPermission] = useState<Permission>("default");
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- l'API Notification n'existe que dans le navigateur
@@ -38,6 +40,12 @@ export function EnclosPanel() {
     () => trierParUrgence(enclos.map((e, i) => vueEnclos(e, i, maintenant))),
     [enclos, maintenant],
   );
+
+  /* Prochaine tournée (#65) : affichée seulement s'il y a au moins deux enclos à revoir dans la foulée. */
+  const tournee = useMemo(() => {
+    const t = grouperTournees(vues, maintenant)[0];
+    return t && t.membres.length >= 2 ? t : null;
+  }, [vues, maintenant]);
 
   /* Titre de l'onglet = compte à rebours du prochain événement ; « À faire » si l'état saisi était déjà au bord (#64). */
   const prochain = vues[0]?.retour ?? null;
@@ -132,6 +140,26 @@ export function EnclosPanel() {
       <p role="status" aria-live="polite" className="sr-only" data-testid="annonce-enclos">
         {annonce}
       </p>
+
+      {pret && tournee && (
+        <TourneeEncadre
+          tournee={tournee}
+          nom={(v) => enclos[v.index].nom || `Enclos ${v.index + 1}`}
+          maintenantMs={maintenant}
+          margeMin={margeMin}
+          onAnnonce={setAnnonce}
+          rappel={{
+            demo,
+            methode,
+            methodes,
+            onMethode: (m) => magasinActif().getState().setMethodeRappel(m),
+            programme: rappelTournee,
+            onProgramme: (r) => magasinActif().getState().setRappelTournee(r),
+            onAnnuler: () => void magasinActif().getState().setRappelTournee(null),
+            onPermission: setPermission,
+          }}
+        />
+      )}
 
       {!pret ? (
         <p className="text-muted-foreground">Chargement…</p>

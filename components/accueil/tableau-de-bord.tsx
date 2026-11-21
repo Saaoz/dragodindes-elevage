@@ -7,7 +7,7 @@ import { useApp, useUi } from "@/components/app-state";
 import { Page } from "@/components/commun/en-tete";
 import { InstallApp } from "@/components/install-app";
 import { buttonVariants } from "@/components/ui/button";
-import { enclosUrgents, estUrgent, formatDuree, formatHeure, raisonRetour } from "@/lib/enclos";
+import { enclosUrgents, estUrgent, formatDuree, formatHeure, grouperTournees, raisonRetour, vueEnclos } from "@/lib/enclos";
 import { almanaxDuMois } from "@/lib/guide";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +23,9 @@ function EnclosASurveiller() {
   }, []);
   const urgents = enclosUrgents(enclos, maintenant, 3);
   const saisis = enclos.filter((e) => e.saisieLe !== null).length;
+  /* #65 : plusieurs enclos à revoir dans la foulée du plus urgent : un lien vers la tournée */
+  const tournee = grouperTournees(enclos.map((e, i) => vueEnclos(e, i, maintenant)), maintenant)[0];
+  const nbTournee = tournee && tournee.membres.length >= 2 ? tournee.membres.length : 0;
 
   return (
     <section aria-labelledby="titre-surveiller" className={cn(carte, "flex flex-col gap-3 md:col-span-2")}>
@@ -87,6 +90,16 @@ function EnclosASurveiller() {
             );
           })}
         </ol>
+      )}
+      {pret && nbTournee > 0 && (
+        <Link
+          href="/enclos#titre-tournee"
+          data-testid="lien-tournee"
+          className="flex min-h-11 items-center gap-2 self-start rounded-lg bg-primary/10 px-3 text-sm font-medium text-primary outline-none hover:bg-primary/15 focus-visible:ring-3 focus-visible:ring-ring/50"
+        >
+          {nbTournee}
+          {"\u00a0"}enclos à revoir dans la foulée : voir la tournée <ArrowRight className="size-4" aria-hidden />
+        </Link>
       )}
       {pret && urgents.length > 0 && (
         <Link href="/enclos" className="self-start text-sm font-medium text-primary underline-offset-4 hover:underline">

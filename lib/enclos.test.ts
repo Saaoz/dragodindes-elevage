@@ -14,6 +14,12 @@ import {
   ZONES,
   CONSEIL_RETARD,
   enclosUrgents,
+  cleTournee,
+  evenementTournee,
+  FENETRE_TOURNEE_MIN,
+  grouperTournees,
+  type RetourEnclos,
+  type VueEnclos,
   estUrgent,
   SEUIL_URGENCE_S,
   raisonRetour,
@@ -893,5 +899,90 @@ describe("aperçu de la saisie dans le formulaire (#64)", () => {
 
   it("sans jauge de sérénité : pas d'heure de retour à prévoir", () => {
     expect(ss(apercuSaisie(brouillon({ sens: null, niveau: "" }), T0).titre)).toBe("Avec cette saisie : pas d’heure de retour à prévoir.");
+  });
+});
+
+describe("tournée : regrouper les retours rapprochés (#65)", () => {
+  const retour = (quandMs: number) => ({ quandMs, evenement: { type: "premiereBorne" } }) as unknown as RetourEnclos;
+  const vueT = (index: number, quand: number | null, extra: Record<string, unknown> = {}) => ({
+    index,
+    retour: quand === null ? null : retour(quand),
+    retardS: null as number | null,
+    aFaireMaintenant: false,
+    ...extra,
+  });
+  const T = new Date(2026, 10, 20, 19, 30, 0).getTime();
+  const h = (hh: number, mm: number) => new Date(2026, 10, 20, hh, mm, 0).getTime();
+
+  it("cas de l'issue : 20 h 00 / 20 h 08 / 20 h 13 / 20 h 31, fenêtre 15 min → « 20 h 00 : 3 enclos », le 4e à part", () => {
+    const vues = [vueT(0, h(20, 31)), vueT(1, h(20, 0)), vueT(2, h(20, 13)), vueT(3, h(20, 8))];
+    const t = grouperTournees(vues, T, 15);
+    expect(t).toHaveLength(2);
+    expect(ss(formatHeure(t[0].debutMs, T))).toBe("20 h 00");
+    expect(t[0].membres.map((v) => v.index)).toEqual([1, 3, 2]);
+    expect(t[0].immediat).toBe(false);
+    expect(t[1].membres.map((v) => v.index)).toEqual([0]);
+    expect(FENETRE_TOURNEE_MIN).toBe(15);
+  });
+
+  it("la fenêtre part du plus urgent (pas de chaîne) : 20 h 00, 20 h 10, 20 h 20 → 2 tournées", () => {
+    const t = grouperTournees([vueT(0, h(20, 0)), vueT(1, h(20, 10)), vueT(2, h(20, 20))], T, 15);
+    expect(t.map((x) => x.membres.length)).toEqual([2, 1]);
+  });
+
+  it("borne incluse (15 min pile), exclue à 16 min ; fenêtre 0 : seuls les retours simultanés se groupent", () => {
+    expect(grouperTournees([vueT(0, h(20, 0)), vueT(1, h(20, 15))], T, 15)).toHaveLength(1);
+    expect(grouperTournees([vueT(0, h(20, 0)), vueT(1, h(20, 16))], T, 15)).toHaveLength(2);
+    expect(grouperTournees([vueT(0, h(20, 0)), vueT(1, h(20, 0)), vueT(2, h(20, 1))], T, 0).map((x) => x.membres.length)).toEqual([2, 1]);
+  });
+
+  it("sans heure de retour : ignoré ; liste vide : aucune tournée ; une seule : tournée d'un enclos", () => {
+    expect(grouperTournees([vueT(0, null)], T)).toEqual([]);
+    expect(grouperTournees([], T)).toEqual([]);
+    expect(grouperTournees([vueT(0, null), vueT(1, h(20, 0))], T)[0].membres).toHaveLength(1);
+  });
+
+  it("à faire maintenant ou en retard : l'heure est maintenant, la tournée est immédiate et attire les retours proches", () => {
+    const vues = [vueT(0, h(19, 0), { retardS: 1800 }), vueT(1, h(19, 40)), vueT(2, h(19, 50)), vueT(3, h(20, 5), { aFaireMaintenant: false })];
+    const t = grouperTournees(vues, T, 15);
+    expect(t[0].immediat).toBe(true);
+    expect(t[0].debutMs).toBe(T);
+    expect(t[0].membres.map((v) => v.index)).toEqual([0, 1]);
+    expect(t[1].membres.map((v) => v.index)).toEqual([2, 3]);
+    const m = grouperTournees([vueT(0, T - 10_000, { aFaireMaintenant: true }), vueT(1, T + 5 * 60_000)], T);
+    expect(m[0].immediat).toBe(true);
+    expect(m[0].membres).toHaveLength(2);
+  });
+
+  it("ne modifie pas la liste d'entrée", () => {
+    const vues = [vueT(0, h(20, 31)), vueT(1, h(20, 0))];
+    grouperTournees(vues, T);
+    expect(vues.map((v) => v.index)).toEqual([0, 1]);
+  });
+
+  it("cleTournee change avec la composition, l'heure d'un retour ou la marge", () => {
+    const a = grouperTournees([vueT(0, h(20, 0)), vueT(1, h(20, 8))], T)[0];
+    const memeAvecAutreHeure = grouperTournees([vueT(0, h(20, 0)), vueT(1, h(20, 9))], T)[0];
+    const plusUn = grouperTournees([vueT(0, h(20, 0)), vueT(1, h(20, 8)), vueT(2, h(20, 10))], T)[0];
+    expect(cleTournee(a, 5)).toBe(cleTournee(grouperTournees([vueT(1, h(20, 8)), vueT(0, h(20, 0))], T + 1000)[0], 5));
+    expect(cleTournee(a, 5)).not.toBe(cleTournee(a, 10));
+    expect(cleTournee(a, 5)).not.toBe(cleTournee(memeAvecAutreHeure, 5));
+    expect(cleTournee(a, 5)).not.toBe(cleTournee(plusUn, 5));
+  });
+
+  it("evenementTournee : un seul événement, heure = premier retour − marge, description listant les enclos", () => {
+    const vues = [
+      { ...vueT(0, h(20, 0)), conseil: "Remplis la jauge." },
+      { ...vueT(1, h(20, 8)), conseil: null },
+    ] as unknown as VueEnclos[];
+    const t = grouperTournees(vues, T)[0];
+    const e = evenementTournee(t, (v) => `Enclos ${v.index + 1}`, 5, T)!;
+    expect(e.debutMs).toBe(h(19, 55));
+    expect(ss(e.titre)).toBe("Tournée des enclos : passe avant 20 h 00");
+    expect(ss(e.description!)).toBe("2 enclos à revoir dans la foulée :\nEnclos 1 : avant 20 h 00. Remplis la jauge.\nEnclos 2 : avant 20 h 08.");
+    expect(e.dureeMin).toBe(13);
+    expect(e.uid).toBe("tournee@dragodindes-elevage");
+    const immediat = grouperTournees([{ ...vues[0], retardS: 60 }, vues[1]] as unknown as VueEnclos[], T)[0];
+    expect(evenementTournee(immediat, () => "x", 5, T)).toBeNull();
   });
 });
