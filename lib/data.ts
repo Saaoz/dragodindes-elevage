@@ -127,8 +127,8 @@ export const SOURCES = [
    Taxe payée À LA MISE EN VENTE, sur le prix affiché, non remboursée si l'objet ne se vend pas.
    Taux donnés par un joueur (novembre 2026) et cohérents avec le tutoriel officiel Dofus 3 (qui dit seulement que
    la taxe dépend de l'alignement et de l'HDV utilisé) ; des guides récents (dofocus.fr) parlent de 2 % payés à la
-   mise en vente, non remboursés si invendu. NON vérifié officiellement : à vérifier en jeu au moment de la mise
-   en vente. Date de la note : 2026-11-21. */
+   mise en vente, non remboursés si invendu. Le joueur a CONFIRMÉ en jeu 2 % de taxe de mise en vente (21/11/2026) ;
+   1 % et 5 % restent ses indications, non vérifiées officiellement. Date de la note : 2026-11-21. */
 export const LIEUX_VENTE = [
   { id: "bonta-brakmar-aligne", taux: 0.01, label: "Bonta/Brâkmar, aligné", detail: "Bonta ou Brâkmar, bon alignement : 1 %" },
   { id: "bonta-brakmar-autre", taux: 0.02, label: "Bonta/Brâkmar, autre", detail: "Bonta ou Brâkmar, autre alignement : 2 %" },
