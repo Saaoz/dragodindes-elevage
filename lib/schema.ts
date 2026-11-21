@@ -6,7 +6,7 @@
 
 import { z } from "zod";
 import { DEFAULT_CALC, type CalcSettings } from "./calc";
-import { CAPACITE_JAUGE, SERVEURS } from "./data";
+import { CAPACITE_JAUGE, LIEUX_VENTE, SERVEURS, type LieuVenteId } from "./data";
 
 export const SERVER_IDS = SERVEURS.map((s) => s.id);
 export type ServerId = (typeof SERVEURS)[number]["id"];
@@ -42,6 +42,7 @@ export const calcSchema = z.object({
   priceFail: intMin(0).default(DEFAULT_CALC.priceFail),
   countGenetons: z.boolean().default(DEFAULT_CALC.countGenetons),
   takeza: z.boolean().default(DEFAULT_CALC.takeza),
+  lieuVente: z.enum(LIEUX_VENTE.map((l) => l.id) as [LieuVenteId, ...LieuVenteId[]]).default(DEFAULT_CALC.lieuVente),
 });
 export type CalcState = z.infer<typeof calcSchema>;
 export const defaultCalc = (): CalcState => calcSchema.parse({});
@@ -176,7 +177,7 @@ export const defaultAppData = (): AppData => appDataSchema.parse({});
 
 /* ---------- enveloppe d'export JSON ---------- */
 export const APP_ID = "dd-elevage";
-export const EXPORT_SCHEMA_VERSION = 4; // 4 : Optimakina par génération (opti2..opti10) au lieu d'un prix unique
+export const EXPORT_SCHEMA_VERSION = 5; // 5 : lieu de vente (taxe HDV, calc.lieuVente) ; 4 : Optimakina par génération (opti2..opti10) au lieu d'un prix unique
 
 /* ---------- compatibilité avec CalcSettings (lib/calc.ts), vérifiée à la compilation ----------
    Le schéma produit un CalcSettings valide (optiBonus 10|20 est plus étroit que number : sens unique)

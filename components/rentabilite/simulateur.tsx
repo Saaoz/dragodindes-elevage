@@ -10,6 +10,7 @@ import { Choix } from "@/components/commun/choix";
 import { champ } from "@/components/commun/champ";
 import { AgePrix } from "@/components/rentabilite/age-prix";
 import { ChampKamas } from "@/components/rentabilite/champ-kamas";
+import { LIEUX_VENTE } from "@/lib/data";
 import { compute, fmt, type CalcSettings, type ComputeResult } from "@/lib/calc";
 import {
   manquants, patchCibleSimple, prixNecessaires, texteSeuil, valeurNecessaire, verdict, type Necessaire,
@@ -26,6 +27,7 @@ const pct = (p: number) => `${(p * 100).toFixed(p * 100 % 1 === 0 ? 0 : 1).repla
 function resume(c: CalcState): string {
   const morceaux = [
     `parents gén. ${c.genA} × gén. ${c.genB} (niv. ${c.lvlA} et ${c.lvlB}, ${c.origin === "hdv" ? "achetés à l'HDV" : "déjà à toi"})`,
+    `vente : ${LIEUX_VENTE.find((l) => l.id === c.lieuVente)?.label ?? ""}`,
     c.opti ? `Optimakina +${c.optiBonus} %` : "sans Optimakina",
     c.parentsMode === "extract" ? "parents extraits ensuite" : c.parentsMode === "sell" ? "parents revendus ensuite" : "parents gardés",
   ];
@@ -111,6 +113,7 @@ function Detail({ c, r, P }: { c: CalcState; r: ComputeResult; P: ReturnType<typ
     ["Coût total", r.cost, "font-semibold border-t"],
     ["Récupération des parents", r.recovery],
   ];
+  const taxePct = pct(r.taxeTaux).replace(" ", " ");
   const sens = r.priceT > 0 && !r.incomplete
     ? [0.8, 1, 1.2].map((f) => compute({ ...c, priceTarget: Math.round(r.priceT * f) }, P).profitExpected)
     : null;
@@ -129,6 +132,12 @@ function Detail({ c, r, P }: { c: CalcState; r: ComputeResult; P: ReturnType<typ
                 <td className="py-1 text-right tabular-nums">{fmt(v)}</td>
               </tr>
             ))}
+            <tr data-testid="ligne-taxe">
+              <th scope="row" className="py-1 text-left font-normal">
+                {r.taxeTaux > 0 ? `Taxe HDV (${taxePct}), en moyenne` : "Taxe HDV : aucune (0 %)"}
+              </th>
+              <td className="py-1 text-right tabular-nums">{r.taxeTaux > 0 ? `−${fmt(r.taxeExpected)}` : "0"}</td>
+            </tr>
             <tr>
               <th scope="row" className="py-1 text-left font-normal">Génétons gagnés (si succès)</th>
               <td className="py-1 text-right tabular-nums">{r.genGain}</td>
@@ -160,7 +169,9 @@ function Detail({ c, r, P }: { c: CalcState; r: ComputeResult; P: ReturnType<typ
         )}
         <p className="text-xs text-muted-foreground">
           Hypothèses : un bébé raté vaut le prix de la génération inférieure (ou ton prix forcé) ; le second bébé du
-          Reproducteur a les mêmes chances ; aucune taxe HDV n&apos;est déduite.
+          Reproducteur a les mêmes chances ; la taxe HDV est payée à la mise en vente, une seule fois par objet
+          (bébés, parents revendus, neurones, Génétons), et jamais remboursée. Taux donnés par un joueur, à vérifier
+          en jeu.
         </p>
       </div>
     </details>
@@ -323,6 +334,21 @@ export function Simulateur() {
             options={GENS.map((g) => ({ valeur: g, label: String(g), aria: `Génération ${g}` }))}
             className="grid max-w-md grid-cols-9 gap-1 [&>button]:justify-center [&>button]:gap-0.5 [&>button]:px-0"
           />
+          <h3 className="text-sm font-medium">Où tu vends</h3>
+          <Choix
+            label="Où tu vends"
+            valeur={c.lieuVente}
+            onChange={(v) => set({ lieuVente: v })}
+            options={LIEUX_VENTE.map((l) => ({
+              valeur: l.id,
+              label: `${l.label} · ${(l.taux * 100).toString().replace(".", ",")} %`,
+              aria: l.detail,
+            }))}
+            className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap [&>button]:h-11 [&>button]:justify-center [&>button]:px-2 [&>button]:whitespace-normal sm:[&>button]:h-9 sm:[&>button]:whitespace-nowrap"
+          />
+          <p className="text-xs text-muted-foreground">
+            Taxe de mise en vente, payée même si ça ne se vend pas. Taux donnés par un joueur : à vérifier en jeu.
+          </p>
           <p className="text-xs text-muted-foreground">
             Hypothèses : {resume(c)}.{" "}
             <button

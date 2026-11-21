@@ -8,7 +8,7 @@
 
 import { create, type StateCreator } from "zustand";
 import { persist, type PersistStorage, type StorageValue } from "zustand/middleware";
-import { parseKamas, type Prices } from "./calc";
+import { DEFAULT_CALC, parseKamas, type Prices } from "./calc";
 import {
   APP_ID, EXPORT_SCHEMA_VERSION, NB_ENCLOS, OBJECTIFS, PRICE_KEYS, SERVER_IDS, appDataSchema, calcSchema,
   defaultAppData, enclosSchema, priceEntrySchema, rappelSchema, ancienRappelSchema, reglagesSchema, rappelTourneeSchema, type AppData, type CalcState,
@@ -33,8 +33,9 @@ export const STORAGE_KEY = "dd-elevage-v3";
    10 : objectifs « endurance » et « amour » (#63) — aucune donnée à transformer (les objectifs déjà
    enregistrés restent valides) ; la version empêche une appli v9, qui lirait « endurance » comme
    illisible (« aucun »), de réécrire les données (elle passe en lecture seule, `futureVersion`) ;
-   11 : `reglages.rappelTournee` (rappel unique de la tournée, #65), null par défaut. */
-export const STORAGE_VERSION = 11;
+   11 : `reglages.rappelTournee` (rappel unique de la tournée, #65), null par défaut ;
+   12 : `calc.lieuVente` (taxe HDV, #66), « bonta-brakmar-autre » (2 %) par défaut. */
+export const STORAGE_VERSION = 12;
 export const LEGACY_V2_KEY = "dd-elevage-v2";
 export const LEGACY_V1_KEY = "dd-elevage-v1";
 
@@ -145,6 +146,16 @@ export function migrateRappelTournee<T>(data: T): T {
   const reglages = isObj(data.reglages) ? data.reglages : {};
   const r = rappelTourneeSchema.nullable().safeParse(reglages.rappelTournee ?? null);
   return { ...data, reglages: { ...reglages, rappelTournee: r.success ? r.data : null } } as T;
+}
+
+/* ---------- migration v11 → v12 : lieu de vente / taxe HDV (#66) ----------
+   `calc.lieuVente` vaut le défaut (Bonta/Brâkmar, autre alignement, 2 %) s'il est absent ou illisible ;
+   une valeur valide est gardée. Idempotent ; ne modifie pas son argument. */
+export function migrateLieuVente<T>(data: T): T {
+  if (!isObj(data)) return data;
+  const calc = isObj(data.calc) ? data.calc : {};
+  const r = calcSchema.shape.lieuVente.safeParse(calc.lieuVente);
+  return { ...data, calc: { ...calc, lieuVente: r.success ? r.data : DEFAULT_CALC.lieuVente } } as T;
 }
 
 /* Le rappel est propre à l'appareil (agenda de cet appareil) : jamais exporté ni importé. */
@@ -583,7 +594,9 @@ export const useStore = create<AppStore>()(
          retour sans que le joueur le voie) : la saisie suivante le propose, visible et modifiable (#63). */
       /* v10 → v11 : rappel de la tournée à null s'il est absent ou illisible. */
       const v11 = version < 11 ? migrateRappelTournee(v9) : v9;
-      return v11 as AppStore;
+      /* v11 → v12 : lieu de vente par défaut s'il est absent. */
+      const v12 = version < 12 ? migrateLieuVente(v11) : v11;
+      return v12 as AppStore;
     },
     /* Toujours nettoyer ce qui vient du disque, même à version égale. */
     merge: (persisted, current) => ({ ...current, ...sanitize(persisted) }),

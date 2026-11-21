@@ -4,7 +4,7 @@ import fixture from "./__fixtures__/export-v2.json";
 import { PRICE_KEYS, SERVER_IDS, defaultAppData, type PriceKey, type ServerId } from "./schema";
 import { matrice } from "./rentabilite";
 import {
-  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateMethodeRappel, migrateRappelTournee, migrateOptimakina, migrateRappels, migrateRappelsAgenda, migrateV1, parseExport, priceCount, syncOnglets,
+  LEGACY_V1_KEY, LEGACY_V2_KEY, STORAGE_KEY, STORAGE_VERSION, demoData, migrateLieuVente, migrateMethodeRappel, migrateRappelTournee, migrateOptimakina, migrateRappels, migrateRappelsAgenda, migrateV1, parseExport, priceCount, syncOnglets,
   parsePaste, priceValues, resetDemo, useDemoStore, useStore,
 } from "./store";
 
@@ -75,7 +75,7 @@ describe("import d'un export v2 réel", () => {
     const before = dataOf(st());
     const out = st().exportJSON();
     const parsed = JSON.parse(out);
-    expect(parsed).toMatchObject({ app: "dd-elevage", schemaVersion: 4 });
+    expect(parsed).toMatchObject({ app: "dd-elevage", schemaVersion: 5 });
     expect(typeof parsed.exportedAt).toBe("string");
     useStore.setState(defaultAppData());
     expect(st().importJSON(out).ok).toBe(true);
@@ -265,7 +265,7 @@ describe("import JSON rejeté proprement", () => {
   it("JSON invalide", () => rejects("{pas du json", /JSON/));
   it("fichier d'une autre appli", () => rejects(JSON.stringify({ app: "autre", data: {} }), /non reconnu/));
   it("sans data", () => rejects(JSON.stringify({ app: "dd-elevage", schemaVersion: 2 })));
-  it("version future", () => rejects(JSON.stringify({ ...fixture, schemaVersion: 5 }), /plus récente/));
+  it("version future", () => rejects(JSON.stringify({ ...fixture, schemaVersion: 6 }), /plus récente/));
   it("version illisible", () => rejects(JSON.stringify({ ...fixture, schemaVersion: "x" })));
   it("prix négatif", () =>
     rejects(
@@ -1023,5 +1023,48 @@ describe("version 11 (#65) : rappel de la tournée", () => {
     useDemoStore.getState().setRappelTournee(rt);
     expect(mem.getItem(STORAGE_KEY)).toBe(avant);
     resetDemo();
+  });
+});
+
+describe("version 12 (#66) : lieu de vente (taxe HDV)", () => {
+  it("STORAGE_VERSION >= 12 et export version 5", () => {
+    expect(STORAGE_VERSION).toBeGreaterThanOrEqual(12);
+    expect(JSON.parse(st().exportJSON()).schemaVersion).toBe(5);
+  });
+
+  it("migrateLieuVente : absent ou illisible vaut 2 %, valide gardé, idempotent, argument intact", () => {
+    const sans = { calc: { target: 5 } };
+    expect(migrateLieuVente(sans).calc).toEqual({ target: 5, lieuVente: "bonta-brakmar-autre" });
+    expect(sans.calc).toEqual({ target: 5 });
+    expect(migrateLieuVente({ calc: { lieuVente: "n'importe quoi" } }).calc.lieuVente).toBe("bonta-brakmar-autre");
+    const bon = { calc: { lieuVente: "astrub" } };
+    expect(migrateLieuVente(migrateLieuVente(bon))).toEqual(bon);
+  });
+
+  it("un état v11 sans lieuVente se recharge avec le défaut, sans rien perdre", async () => {
+    const calcSans: Record<string, unknown> = { ...st().calc };
+    delete calcSans.lieuVente;
+    mem.setItem(STORAGE_KEY, JSON.stringify({ version: 11, state: { ...fixture.data, calc: { ...calcSans, target: 7 } } }));
+    await useStore.persist.rehydrate();
+    expect(st().calc.lieuVente).toBe("bonta-brakmar-autre");
+    expect(st().calc.target).toBe(7);
+  });
+
+  it("le choix est persisté et rechargé ; une valeur invalide est refusée", async () => {
+    expect(st().setCalc({ lieuVente: "astrub" })).toBe(true);
+    expect(JSON.parse(mem.getItem(STORAGE_KEY)!).state.calc.lieuVente).toBe("astrub");
+    expect(st().setCalc({ lieuVente: "ailleurs" } as never)).toBe(false);
+    await useStore.persist.rehydrate();
+    expect(st().calc.lieuVente).toBe("astrub");
+  });
+
+  it("export : le lieu de vente est exporté et réimporté ; un ancien export sans lui s'importe (défaut)", () => {
+    st().setCalc({ lieuVente: "direct" });
+    const json = st().exportJSON();
+    expect(JSON.parse(json).data.calc.lieuVente).toBe("direct");
+    const p = parseExport(json);
+    expect(p.ok && p.data.calc.lieuVente).toBe("direct");
+    const ancien = parseExport(fixtureText);
+    expect(ancien.ok && ancien.data.calc.lieuVente).toBe("bonta-brakmar-autre");
   });
 });

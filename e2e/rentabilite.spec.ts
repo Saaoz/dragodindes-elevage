@@ -22,6 +22,8 @@ test("mode simple : génération cible + 3 prix → verdict, enregistré", async
   await prix(page, "Monture gén. 1", "20 000");
   await expect(verdict).toContainText("Il manque 1 prix");
   await prix(page, "Optimakina gén. 2", "10k");
+  /* valeurs historiques : sans taxe (la taxe a son propre test) */
+  await page.getByRole("button", { name: /Vente directe/ }).click();
 
   /* chance 80 % : 0,8 × 150 000 + 0,2 × (−30 000) = +114 000 */
   await expect(verdict).toContainText("Rentable");
@@ -111,4 +113,32 @@ test("comparatif : heatmap serveurs × génération et graphique", async ({ page
   await expect(page.getByText(/Renseigne les prix des générations/)).toBeVisible();
   await page.getByRole("button", { name: "Génération 1 (capturée)" }).click();
   await expect(page.getByRole("button", { name: "Génération 1 (capturée)" })).toHaveAttribute("aria-pressed", "true");
+});
+
+test("lieu de vente : 2 % par défaut, change le verdict et le détail, mémorisé", async ({ page }) => {
+  await page.goto("/rentabilite");
+  await page.getByRole("button", { name: "Génération 2" }).click();
+  await prix(page, "Monture gén. 2", "200k");
+  await prix(page, "Monture gén. 1", "20k");
+  await prix(page, "Optimakina gén. 2", "10k");
+  const verdict = page.getByTestId("verdict");
+  const taxe = page.getByTestId("ligne-taxe");
+  await page.getByText("Détail du calcul").click();
+
+  /* défaut : Bonta/Brâkmar, autre alignement, 2 % */
+  await expect(page.getByRole("button", { name: /autre alignement/ })).toHaveAttribute("aria-pressed", "true");
+  await expect(verdict).toContainText(/\+110.720 kamas/);
+  await expect(taxe).toContainText(/Taxe HDV \(2.%\)/);
+
+  await page.getByRole("button", { name: /Astrub/ }).click();
+  await expect(verdict).toContainText(/\+105.800 kamas/);
+  await expect(taxe).toContainText(/Taxe HDV \(5.%\)/);
+
+  await page.getByRole("button", { name: /Vente directe/ }).click();
+  await expect(verdict).toContainText(/\+114.000 kamas/);
+  await expect(taxe).toContainText("aucune");
+
+  await page.getByRole("button", { name: /Astrub/ }).click();
+  await page.reload();
+  await expect(page.getByRole("button", { name: /Astrub/ })).toHaveAttribute("aria-pressed", "true");
 });
