@@ -170,8 +170,8 @@ function Detail({ c, r, P }: { c: CalcState; r: ComputeResult; P: ReturnType<typ
         <p className="text-xs text-muted-foreground">
           Hypothèses : un bébé raté vaut le prix de la génération inférieure (ou ton prix forcé) ; le second bébé du
           Reproducteur a les mêmes chances ; la taxe HDV est payée à la mise en vente, une seule fois par objet
-          (bébés, parents revendus, neurones, Génétons), et jamais remboursée. Taux donnés par un joueur, à vérifier
-          en jeu.
+          (bébés, parents revendus, neurones, Génétons), et jamais remboursée. 2 % confirmé en jeu ; 1 % et 5 % donnés par un
+          joueur.
         </p>
       </div>
     </details>
@@ -347,7 +347,7 @@ export function Simulateur() {
             className="grid grid-cols-2 gap-1.5 sm:flex sm:flex-wrap [&>button]:h-11 [&>button]:justify-center [&>button]:px-2 [&>button]:whitespace-normal sm:[&>button]:h-9 sm:[&>button]:whitespace-nowrap"
           />
           <p className="text-xs text-muted-foreground">
-            Taxe de mise en vente, payée même si ça ne se vend pas. Taux donnés par un joueur : à vérifier en jeu.
+            Taxe de mise en vente, payée même si ça ne se vend pas. 2 % confirmé en jeu ; 1 % et 5 % donnés par un joueur.
           </p>
           <p className="text-xs text-muted-foreground">
             Hypothèses : {resume(c)}.{" "}

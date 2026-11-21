@@ -652,7 +652,7 @@ export function GuidePage() {
               ["Durabilité des carburants", "1 000 à 5 000 (3.5)", "2 000 à 10 000 (3.7 : Noobs, JeuxEnd). Sigilos cite 6 000 pour un Normal, cohérent."],
               ["Animakina", "Capacité aléatoire (3.5)", "Choix du sexe du bébé (3.7 : Noobs, Sigilos). Retenu."],
               ["Probabilités de capacité", "27 / 27 / 27 / 14 / 5 % (3.5, avec Précoce)", "8 / 8 / 6 / 3 % (3.7 ; Précoce supprimée). Retenu."],
-              ["Taxe de mise en vente à l'HDV", "1 % (Bonta/Brâkmar, bon alignement), 2 % (autre alignement), 5 % (Astrub) : taux donnés par un joueur (novembre 2026), cohérents avec le tutoriel officiel Dofus 3 (la taxe dépend de l'alignement et de l'HDV) ; non vérifiés officiellement", "Guides récents (dofocus.fr) : 2 % payés à la mise en vente, non remboursés si invendu. À vérifier en jeu au moment de la mise en vente (note du 21/11/2026). Défaut du simulateur : 2 %."],
+              ["Taxe de mise en vente à l'HDV", "1 % (Bonta/Brâkmar, bon alignement), 2 % (autre alignement), 5 % (Astrub) : 2 % confirmé en jeu par un joueur (21/11/2026) ; 1 % et 5 % donnés par le même joueur, cohérents avec le tutoriel officiel Dofus 3 (la taxe dépend de l'alignement et de l'HDV)", "Guides récents (dofocus.fr) : 2 % payés à la mise en vente, non remboursés si invendu. Défaut du simulateur : 2 %."],
               ["Bébés par accouplement", "1 (2 avec Reproducteur)", "« jusqu'à 4 » (guide qui mélange l'ancien système)"],
             ]}
           />

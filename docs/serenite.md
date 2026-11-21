@@ -39,7 +39,8 @@ Jauge pleine (200 000) : ≈ 35 h 38 pour se vider. Les vitesses sont multiplié
 | 0 à +5 000 (0 inclus) | Amour | vert :D (Amour seul) |
 
 Les guides ne donnent **aucune valeur numérique par visage**, seulement ces plages. Bornes d'après
-dofuspourlespros.com, guide de l'éleveur 2026 (écrit pour la 3.5, à vérifier en jeu en 3.7) ; elles sont
+dofuspourlespros.com, guide de l'éleveur 2026 (écrit pour la 3.5) ; la sérénité **0 compte en Amour** (confirmé en
+jeu par un joueur, 21/11/2026). Elles sont
 dans `ZONE_ENDURANCE`, `ZONE_MATURITE` et `ZONE_AMOUR` (`lib/serenity.ts`).
 
 ## Ce que calcule `serenityPlan`
@@ -178,13 +179,13 @@ savoir si l'arrêt vaut dès qu'**une** monture est hors plage ou seulement quan
 - [ ] Le niveau exact d'une jauge est-il affiché quelque part (survol de la barre) ?
 - [ ] Une monture **Dorée** bouge-t-elle 5 fois plus lentement en sérénité (×5) ? Non modélisé.
 - [ ] La jauge **continue-t-elle à se vider** une fois toutes les montures à ±5 000 ? (hypothèse 2)
-- [ ] Une jauge **Endurance, Amour ou Maturité continue-t-elle à se vider** quand aucune monture n'est dans sa
-  plage (#63) ? D'après dofuspourlespros.com (guide de l'éleveur 2026, écrit pour la 3.5, à vérifier en jeu en
+- [x] Une jauge **Endurance, Amour ou Maturité continue-t-elle à se vider** quand aucune monture n'est dans sa
+  plage (#63) ? **Retenu : non** (décision du joueur du 21/11/2026, faute de mieux : on suit les guides). D'après dofuspourlespros.com (guide de l'éleveur 2026, écrit pour la 3.5, à vérifier en jeu en
   3.7) : « si une jauge est active et qu'il n'y a aucune monture dans l'enclos ou que les montures dans l'enclos
   ne peuvent pas en profiter alors elle ne se vide pas » (écrit pour la mangeoire / XP, règle probablement
   générale). Si c'est vrai, sortir de la plage fait perdre du **temps**, pas du carburant (c'est ce que dit
   l'alerte), et l'heure « Jauge … vide à » est trop tôt. Et si une seule monture sur plusieurs est hors plage ?
-- [ ] La sérénité **0** compte-t-elle bien en Amour et pas en Endurance (bornes du même guide) ?
+- [x] La sérénité **0** compte bien en Amour et pas en Endurance : confirmé en jeu par un joueur (21/11/2026).
 - [ ] Correspondance entre la **durabilité d'un carburant** (Minuscule 2 000 … Gigantesque 10 000 en
   3.7) et les points de jauge.
 - [ ] Almanax (avril : Sérénité − doublée, septembre : Sérénité + doublée) : double-t-il la vitesse
