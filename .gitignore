@@ -17,7 +17,6 @@ next-env.d.ts
 playwright-report
 test-results
 .env*
-!.env.example
 .vercel
 # Service worker généré au build depuis scripts/sw.template.js (#55)
 public/sw.js

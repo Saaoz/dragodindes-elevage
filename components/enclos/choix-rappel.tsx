@@ -16,7 +16,6 @@ export function ChoixRappel({
   heure,
   methodes,
   initiale,
-  sansPush,
   rappelActif,
   onConfirmer,
   onAnnulerRappel,
@@ -32,8 +31,6 @@ export function ChoixRappel({
   methodes: readonly MethodeRappel[];
   /** Méthode cochée à l'ouverture. */
   initiale: MethodeRappel;
-  /** Phrase expliquant pourquoi la notification sur le téléphone manque, le cas échéant. */
-  sansPush: string | null;
   /** Un rappel est déjà programmé pour cet enclos : on peut l'annuler. */
   rappelActif: boolean;
   onConfirmer: (m: MethodeRappel) => void;
@@ -55,7 +52,6 @@ export function ChoixRappel({
             heure={heure}
             methodes={methodes}
             initiale={initiale}
-            sansPush={sansPush}
             rappelActif={rappelActif}
             focusInitial={focusInitial}
             onConfirmer={onConfirmer}
@@ -72,7 +68,6 @@ function Contenu({
   heure,
   methodes,
   initiale,
-  sansPush,
   rappelActif,
   focusInitial,
   onConfirmer,
@@ -82,7 +77,6 @@ function Contenu({
   heure: string;
   methodes: readonly MethodeRappel[];
   initiale: MethodeRappel;
-  sansPush: string | null;
   rappelActif: boolean;
   focusInitial: React.RefObject<HTMLElement | null>;
   onConfirmer: (m: MethodeRappel) => void;
@@ -128,12 +122,6 @@ function Contenu({
           </label>
         ))}
       </fieldset>
-
-      {sansPush && (
-        <p className="rounded-lg border border-warning/50 p-3 text-sm text-warning" data-testid="sans-push">
-          {sansPush}
-        </p>
-      )}
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         {rappelActif && (

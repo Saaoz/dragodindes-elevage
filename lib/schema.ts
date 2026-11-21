@@ -87,18 +87,15 @@ export const monture = z.object({
   serenite: z.number().int().min(-5000).max(5000).default(0),
 });
 
-/* Rappel programmé pour la saisie actuelle d'un enclos (#16 push, #53 agenda / Google Agenda).
+/* Rappel programmé pour la saisie actuelle d'un enclos (#53 agenda / Google Agenda) ; at = heure du rappel.
    « page » n'y figure pas : il disparaît vraiment au rechargement, on ne le persiste pas.
-   push : messageId du message QStash (pour l'annuler), at = heure d'envoi ; agenda / google : at = heure du rappel. */
-export const METHODES_PERSISTEES = ["push", "agenda", "google"] as const;
-export const rappelSchema = z
-  .object({
-    methode: z.enum(METHODES_PERSISTEES),
-    /* heure du rappel (ms) */
-    at: z.number().finite().nonnegative(),
-    messageId: z.string().min(1).max(128).optional(),
-  })
-  .refine((r) => r.methode !== "push" || r.messageId !== undefined, { message: "messageId requis pour le push" });
+   (Le rappel push des versions 5 à 8 a été retiré : il est remis à null à la lecture.) */
+export const METHODES_PERSISTEES = ["agenda", "google"] as const;
+export const rappelSchema = z.object({
+  methode: z.enum(METHODES_PERSISTEES),
+  /* heure du rappel (ms) */
+  at: z.number().finite().nonnegative(),
+});
 export type Rappel = z.infer<typeof rappelSchema>;
 
 /* Événement d'agenda laissé par une saisie précédente : l'appli ne peut pas le retirer, elle le rappelle au joueur. */
@@ -118,9 +115,10 @@ export const enclosSchema = z.object({
   niveauAutre: z.number().int().min(0).max(CAPACITE_JAUGE).default(0),
   /* horodatage de la saisie des niveaux (ms), null si jamais saisi */
   saisieLe: z.number().finite().nonnegative().nullable().default(null),
-  /* Rappel programmé sur CET appareil pour la saisie actuelle (push, agenda, Google Agenda) ; remis à null
+  /* Rappel programmé sur CET appareil pour la saisie actuelle (agenda, Google Agenda) ; remis à null
      à chaque ressaisie. Propre à l'appareil : jamais exporté, remis à null à l'import. */
-  rappel: rappelSchema.nullable().default(null),
+  /* illisible (dont un ancien rappel push) : null, sans jamais faire perdre l'enclos */
+  rappel: rappelSchema.nullable().catch(null),
   /* Dernier événement d'agenda / Google laissé par la saisie précédente (à supprimer à la main). Propre à l'appareil. */
   ancienRappel: ancienRappelSchema.nullable().catch(null),
   /* Objectif choisi pour cet enclos ; absent (anciennes données) ou illisible : « aucun »,
@@ -133,9 +131,9 @@ export const defaultEnclos = (): Enclos[] =>
   Array.from({ length: NB_ENCLOS }, (_, i) => enclosSchema.parse({ nom: `Enclos ${i + 1}` }));
 
 /* ---------- réglages de l'appli (#4) ---------- */
-/* Façon de se faire rappeler (#51), mémorisée une fois choisie : notification push sur ce téléphone,
-   fichier d'agenda (.ics), Google Agenda, ou notification dans la page tant qu'elle reste ouverte. */
-export const METHODES_RAPPEL = ["push", "agenda", "google", "page"] as const;
+/* Façon de se faire rappeler (#51), mémorisée une fois choisie : fichier d'agenda (.ics), Google Agenda,
+   ou notification dans la page tant qu'elle reste ouverte. */
+export const METHODES_RAPPEL = ["agenda", "google", "page"] as const;
 export type MethodeRappel = (typeof METHODES_RAPPEL)[number];
 
 export const reglagesSchema = z.object({
