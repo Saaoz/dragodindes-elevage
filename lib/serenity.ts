@@ -21,6 +21,8 @@ export const SERENITE_MAX = 5000;
 export const SEUILS_SERENITE = [-2000, 0, 2000] as const;
 
 /** Zone « moyenne » (Maturité) : -2 000 à +2 000. */
+/** Sans jauge de sérénité active, la sérénité ne bouge pas (quel que soit l'objectif coché). */
+export const MESSAGE_SANS_JAUGE = "Aucune jauge de sérénité active : la sérénité ne bouge pas.";
 export const ZONE_MATURITE: ZoneSerenite = { min: -2000, max: 2000 };
 
 /* ---------- types ---------- */
@@ -370,8 +372,8 @@ function calculerRemplissage(
       ...vide,
       statut: "dejaAtteint",
       atteignable: true,
-      message: "Aucune jauge de sérénité active et aucun objectif.",
-      conseil: "Aucune jauge de sérénité active et aucun objectif.",
+      message: MESSAGE_SANS_JAUGE,
+      conseil: MESSAGE_SANS_JAUGE,
     };
 
   const bas = Math.min(...serenites);
@@ -467,10 +469,10 @@ function calculerRemplissage(
       message = "";
   }
   const conseil = message;
-  /* Excédent : on ne promet pas de « couper » la jauge (à vérifier en jeu, docs/serenite.md) ; il faut revenir avant.
+  /* Excédent : on ne promet pas de « couper » la jauge (voir docs/serenite.md, « À vérifier en jeu ») ; il faut revenir avant.
      Déjà à ±5 000 (sans zone) : le message dit déjà que les points restants sont gaspillés. */
   if (excedent > 0 && statut !== "sensIncoherent" && !(statut === "horsZone" && !zone))
-    message += ` Attention : la jauge contient ${fmt(excedent)} points de trop : reviens avant le moment indiqué pour changer de jauge (à vérifier en jeu : peut-on retirer le carburant ?).`;
+    message += ` Attention : la jauge contient ${fmt(excedent)} points de trop : reviens avant le moment indiqué pour changer de jauge.`;
 
   return {
     statut,

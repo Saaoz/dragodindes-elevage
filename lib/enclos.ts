@@ -190,6 +190,16 @@ export interface VueEnclos {
   autreVideMs: number | null;
 }
 
+/** Seuil d'urgence : le rouge n'est réservé qu'aux retours à moins de 30 min (ou déjà dépassés).
+    Au-delà, la carte et la ligne de l'accueil restent neutres, même si une monture finira à ±5 000. */
+export const SEUIL_URGENCE_S = 30 * 60;
+
+/** Vrai si l'enclos demande une action immédiate : retour dépassé, ou dans moins de `SEUIL_URGENCE_S`. */
+export function estUrgent(vue: Pick<VueEnclos, "retour" | "retardS">, maintenantMs: number): boolean {
+  if (!vue.retour) return false;
+  return vue.retardS !== null || (vue.retour.quandMs - maintenantMs) / 1000 < SEUIL_URGENCE_S;
+}
+
 const TYPES_RETOUR = new Set(["sortieZone", "premiereBorne", "jaugeVide"]);
 
 export function vueEnclos(
@@ -234,7 +244,8 @@ export function vueEnclos(
      (il ne change plus chaque seconde) et ne dit jamais « pas besoin de revenir » à côté d'une heure de retour. */
   let conseil: string | null = null;
   if (retardS === null) {
-    if (!retour) conseil = plan.aRemplir.conseil;
+    /* sans jauge active la carte le dit déjà : pas de seconde phrase */
+    if (!retour) conseil = plan.etat.sens === null && !options.zone ? null : plan.aRemplir.conseil;
     else {
       /* État exact au moment de l'événement (points consommés depuis la saisie, sans arrondi d'heure).
          Montures stables : calcul « jauge vide » ; encore poussées au bord : jauge opposée (#45). */
@@ -249,7 +260,7 @@ export function vueEnclos(
       const c = sansConseil ? "" : auRetour.conseil.replace(/ : pas besoin de revenir avant qu.elle soit vide\.$/, ".");
       conseil = c ? `À ton retour : ${c.charAt(0).toLowerCase()}${c.slice(1)}` : "";
       if (depuisSaisie && depuisSaisie.aRemplir.excedent > 0)
-        conseil += `${conseil ? " " : ""}La jauge contient plus de points que nécessaire : reviens avant ${formatHeure(retour.quandMs, maintenantMs)} pour changer de jauge (à vérifier en jeu : peut-on retirer le carburant ?).`;
+        conseil += `${conseil ? " " : ""}La jauge contient plus de points que nécessaire : change de jauge dès ton retour.`;
     }
   }
   return { index, plan, retour, alerte, retardS, conseil: conseil || null, jaugeVideMs, autreVideMs };
@@ -298,16 +309,25 @@ export function annonceEnregistre(vue: VueEnclos, nom: string, maintenantMs: num
 export const CONSEIL_RETARD =
   "Retourne à l’enclos, regarde la sérénité des montures et le niveau des jauges, puis clique « Je quitte l’enclos » : une nouvelle heure de retour sera calculée.";
 
-/** Texte de l'alerte ±5 000 : au futur avant la borne, au passé (avec les points déjà gaspillés) après. */
-export function texteAlerte(alerte: AlerteEnclos, maintenantMs: number): string {
-  const h = formatHeure(alerte.quandMs, maintenantMs);
+/** Texte de l'alerte ±5 000 : au futur avant la borne, au passé (avec les points déjà gaspillés) après.
+    `memeEvenement` : l'alerte décrit le même événement que le titre de la carte (c'est lui qui porte l'heure) :
+    on ne la répète pas, l'encadré ne garde que les points gaspillés. */
+export function texteAlerte(alerte: AlerteEnclos, maintenantMs: number, memeEvenement = false): string {
+  const h = memeEvenement ? "" : ` à ${formatHeure(alerte.quandMs, maintenantMs)}`;
   const qui = `la monture ${alerte.monture + 1}`;
   if (!alerte.passee)
-    return `${qui} atteindra ${formatSerenite(alerte.valeur)} à ${h}. Si tu reviens plus tard, ${formatNombre(alerte.gaspille)} points de jauge sont gaspillés pour elle.`;
+    return `${qui} atteindra ${formatSerenite(alerte.valeur)}${h}. Si tu reviens plus tard, ${formatNombre(alerte.gaspille)} points de jauge sont gaspillés pour elle.`;
+  /* même événement que le titre : « depuis 21 h 33, N points gaspillés » y figure déjà, on n'ajoute que le pire cas */
+  if (memeEvenement) return `jusqu’à ${formatNombre(alerte.gaspille)} points de jauge seront gaspillés pour elle si tu ne reviens pas.`;
   const reste = alerte.gaspille - alerte.gaspilleDeja;
-  return `${qui} a atteint ${formatSerenite(alerte.valeur)} à ${h} : ${formatNombre(alerte.gaspilleDeja)} points de jauge gaspillés pour elle${
+  return `${qui} a atteint ${formatSerenite(alerte.valeur)}${h} : ${formatNombre(alerte.gaspilleDeja)} points de jauge gaspillés pour elle${
     reste > 0 ? ` depuis, jusqu’à ${formatNombre(alerte.gaspille)} si tu ne reviens pas` : ""
   }.`;
+}
+
+/** L'alerte ±5 000 décrit le même événement que l'heure de retour du titre (première borne atteinte). */
+export function alerteSurRetour(vue: Pick<VueEnclos, "retour" | "alerte">): boolean {
+  return vue.alerte !== null && vue.retour !== null && vue.retour.evenement.type === "premiereBorne" && vue.retour.quandMs === vue.alerte.quandMs;
 }
 
 /** Le plus urgent en haut ; sans retour à prévoir, à la fin (ordre d'origine conservé). */
