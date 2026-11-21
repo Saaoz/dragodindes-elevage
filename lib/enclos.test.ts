@@ -35,6 +35,7 @@ import {
   formatNombre,
   parseNombre,
   remplacerEnclos,
+  texteEnclosPasPlein,
   trierParUrgence,
   visageDe,
   VISAGES,
@@ -1103,5 +1104,41 @@ describe("tournée : regrouper les retours rapprochés (#65)", () => {
     expect(e.uid).toBe("tournee@dragodindes-elevage");
     const immediat = grouperTournees([{ ...vues[0], retardS: 60 }, vues[1]] as unknown as VueEnclos[], T)[0];
     expect(evenementTournee(immediat, () => "x", 5, T)).toBeNull();
+  });
+});
+
+describe("enclos pas plein (#79) : la jauge consomme autant avec 10 montures", () => {
+  it("2 à 9 montures avec une jauge active : la ligne, au singulier pour une seule monture", () => {
+    expect(texteEnclosPasPlein(enclosTest([0, 0, 0, 0], 100))).toBe(
+      "4 montures sur 10 : la jauge consomme autant qu'avec 10. Remplis l'enclos pour ne pas gaspiller de carburant.",
+    );
+    expect(texteEnclosPasPlein(enclosTest([0, 0], 100))).toMatch(/^2 montures sur 10 : /);
+    expect(texteEnclosPasPlein(enclosTest([0], 100))).toMatch(/^1 monture sur 10 : /);
+    expect(texteEnclosPasPlein(enclosTest([0, 0, 0, 0, 0, 0, 0, 0, 0], 100))).toMatch(/^9 montures sur 10 : /);
+  });
+
+  it("10 montures ou plus : aucune ligne", () => {
+    expect(texteEnclosPasPlein(enclosTest(Array(10).fill(0), 100))).toBeNull();
+  });
+
+  it("sans jauge active (aucune, ou niveau à 0) : aucune ligne", () => {
+    expect(texteEnclosPasPlein(enclosTest([0, 0], 100, null))).toBeNull();
+    expect(texteEnclosPasPlein(enclosTest([0, 0], 0))).toBeNull();
+  });
+
+  it("une autre jauge active suffit ; une autre jauge à 0 ne compte pas", () => {
+    const avecAutre = enclosSchema.parse({
+      montures: [{ serenite: 0 }, { serenite: 0 }],
+      autreJauge: "Amour",
+      niveauAutre: 50,
+      saisieLe: T0,
+    });
+    expect(texteEnclosPasPlein(avecAutre)).toMatch(/^2 montures sur 10 : /);
+    const autreVide = enclosSchema.parse({ montures: [{ serenite: 0 }], autreJauge: "Amour", niveauAutre: 0, saisieLe: T0 });
+    expect(texteEnclosPasPlein(autreVide)).toBeNull();
+  });
+
+  it("enclos non saisi : aucune ligne", () => {
+    expect(texteEnclosPasPlein(enclosSchema.parse({ montures: [{ serenite: 0 }], jaugeSerenite: "+", niveauSerenite: 100 }))).toBeNull();
   });
 });
