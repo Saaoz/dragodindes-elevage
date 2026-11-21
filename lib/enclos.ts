@@ -775,6 +775,19 @@ export function enclosUrgents(liste: readonly Enclos[], maintenantMs: number, ma
     .slice(0, max);
 }
 
+/* ---------- enclos pas plein (#79) ---------- */
+/** La jauge consomme 10 points toutes les 10 s quel que soit le nombre de montures : un enclos non plein gaspille.
+    Ligne discrète de la carte, seulement pour un enclos saisi avec une jauge active et moins de `MAX_MONTURES`. */
+export function texteEnclosPasPlein(enclos: Enclos): string | null {
+  if (enclos.saisieLe === null) return null;
+  const jaugeActive =
+    (enclos.jaugeSerenite !== null && enclos.niveauSerenite > 0) || (enclos.autreJauge !== null && enclos.niveauAutre > 0);
+  const n = enclos.montures.length;
+  if (!jaugeActive || n < 1 || n >= MAX_MONTURES) return null;
+  const monture = n === 1 ? "monture" : "montures";
+  return `${n} ${monture} sur ${MAX_MONTURES} : la jauge consomme autant qu'avec ${MAX_MONTURES}. Remplis l'enclos pour ne pas gaspiller de carburant.`;
+}
+
 /* ---------- formats ---------- */
 /** Espace insécable : durées, heures et nombres ne se coupent jamais en fin de ligne (#32). */
 export const ESPACE_INSECABLE = " ";

@@ -32,7 +32,10 @@ test("saisie d'un enclos : alerte ±5 000, heure de retour, persistance, agenda
 
   /* #57 : l'heure de retour n'est écrite qu'une fois, aucune note de développeur, pas de rouge à plus de 30 min */
   await expect(carte.getByText(/21\sh\s33/)).toHaveCount(1);
-  await expect(carte.getByText(/à vérifier en jeu|carburant/)).toHaveCount(0);
+  /* #79 : seule la ligne « enclos pas plein » (1 monture sur 10, jauge active) parle de carburant */
+  await expect(carte.getByText(/à vérifier en jeu/)).toHaveCount(0);
+  await expect(carte.getByText(/carburant/)).toHaveCount(1);
+  await expect(carte.getByTestId("enclos-pas-plein")).toHaveCount(1);
   await expect(carte).toHaveAttribute("data-urgent", "false");
 
   /* le plus urgent remonte en haut */
@@ -950,4 +953,26 @@ test("tournée (#65) : en démo, aucun rappel réel, même message que les carte
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(tournee.getByTestId("etat-rappel-tournee")).toHaveCount(0);
   expect(await etatLocal(page)).toBe(avant);
+});
+
+test("enclos pas plein (#79) : ligne discrète avec une jauge et moins de 10 montures, absente sans jauge", async ({ page }) => {
+  await page.goto("/enclos");
+  /* 2 montures et une jauge de sérénité : la ligne apparaît */
+  const carte = page.getByRole("region", { name: "Enclos 1" });
+  await carte.getByRole("button", { name: "Saisir cet enclos" }).click();
+  await carte.getByLabel("Sérénité exacte de la monture 1").fill("-3000");
+  await carte.getByRole("button", { name: "Ajouter une monture" }).click();
+  await carte.getByLabel("Sérénité exacte de la monture 2").fill("0");
+  await carte.getByRole("button", { name: "Sérénité +" }).click();
+  await carte.getByPlaceholder("ex. 200000 ou 85k").fill("200000");
+  await carte.getByRole("button", { name: /Enregistrer/ }).click();
+  await expect(carte.getByTestId("enclos-pas-plein")).toContainText("2 montures sur 10 : la jauge consomme autant qu'avec 10");
+
+  /* enclos sans jauge : pas de ligne */
+  const carte2 = page.getByRole("region", { name: "Enclos 2" });
+  await carte2.getByRole("button", { name: "Saisir cet enclos" }).click();
+  await carte2.getByLabel("Sérénité exacte de la monture 1").fill("0");
+  await carte2.getByRole("button", { name: /Enregistrer/ }).click();
+  await expect(carte2.getByText(/Aucune jauge de sérénité active/)).toHaveCount(1);
+  await expect(carte2.getByTestId("enclos-pas-plein")).toHaveCount(0);
 });

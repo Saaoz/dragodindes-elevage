@@ -23,6 +23,7 @@ import {
   texteAlerte,
   texteAlerteJauge,
   texteAutreJauge,
+  texteEnclosPasPlein,
   visageDe,
   type Objectif,
   type VueEnclos,
@@ -111,6 +112,7 @@ export function EnclosCard({
   rappel: RappelCarte;
 }) {
   const nom = enclos.nom || `Enclos ${vue.index + 1}`;
+  const pasPlein = texteEnclosPasPlein(enclos);
   const [edition, setEdition] = useState(false);
   /* Rappel « dans la page » : seul état non persisté (il disparaît vraiment au rechargement). Agenda et
      Google Agenda sont mémorisés dans `enclos.rappel` et survivent au rechargement (#53). */
@@ -394,6 +396,11 @@ export function EnclosCard({
               <p className="flex items-start gap-1.5 text-muted-foreground" data-testid="autre-jauge">
                 <IconeJauge jauge={enclos.autreJauge} className="mt-0.5" />
                 <span>{texteAutreJauge(enclos.autreJauge, vue.consoAutre, maintenantMs)}</span>
+              </p>
+            )}
+            {pasPlein && (
+              <p className="text-muted-foreground" data-testid="enclos-pas-plein">
+                {pasPlein}
               </p>
             )}
           </div>
